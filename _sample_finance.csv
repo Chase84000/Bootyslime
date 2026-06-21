@@ -1,0 +1,11 @@
+date,description,amount,category,account,balance
+2026-01-01,Salary,5000,Income,Checking,5000
+2026-01-03,Rent,-1800,Housing,Checking,3200
+2026-01-04,Groceries,-142.73,Food,Checking,3057.27
+2026-01-08,Spotify,-11.99,Entertainment,Checking,3045.28
+2026-01-15,Uber,-24.55,Transport,Checking,3020.73
+2026-02-01,Salary,5000,Income,Checking,8020.73
+2026-02-03,Rent,-1800,Housing,Checking,6220.73
+2026-02-06,Groceries,-153.44,Food,Checking,6067.29
+2026-02-08,Spotify,-11.99,Entertainment,Checking,6055.30
+2026-02-15,Uber,-19.12,Transport,Checking,6036.18

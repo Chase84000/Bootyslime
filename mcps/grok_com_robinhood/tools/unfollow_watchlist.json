@@ -1,0 +1,17 @@
+{
+  "name": "unfollow_watchlist",
+  "description": "Stop following a Robinhood-curated list. The list itself is unchanged — it just no longer appears in the user's watchlists. Confirm with the user before calling.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "list_id": {
+        "type": "string",
+        "description": "UUID of the Robinhood-curated list to unfollow."
+      }
+    },
+    "required": [
+      "list_id"
+    ],
+    "additionalProperties": false
+  }
+}

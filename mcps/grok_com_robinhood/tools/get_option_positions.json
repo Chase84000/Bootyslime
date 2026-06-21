@@ -1,0 +1,53 @@
+{
+  "name": "get_option_positions",
+  "description": "List options positions for an account. Returns open and closed (zero-quantity) positions. Pass nonzero=true for \"what options do I have\" / \"show me my positions\" — the common case.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "account_number": {
+        "type": "string",
+        "description": "Brokerage account number. Must come from the user or be clearly implied — never default from get_accounts."
+      },
+      "nonzero": {
+        "type": "boolean",
+        "description": "True to return only currently-open positions; omit/false to include closed ones."
+      },
+      "chain_ids": {
+        "type": "string",
+        "description": "Comma-separated chain UUIDs (from get_option_chains)."
+      },
+      "option_ids": {
+        "type": "string",
+        "description": "Comma-separated instrument UUIDs."
+      },
+      "type": {
+        "type": "string",
+        "description": "'long' or 'short'."
+      },
+      "option_type": {
+        "type": "string",
+        "description": "'call' or 'put'."
+      },
+      "expiration_date": {
+        "type": "string",
+        "description": "Exact expiration (YYYY-MM-DD)."
+      },
+      "expiration_date_lte": {
+        "type": "string",
+        "description": "Upper bound on expiration (YYYY-MM-DD)."
+      },
+      "expiration_date_gte": {
+        "type": "string",
+        "description": "Lower bound on expiration (YYYY-MM-DD)."
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Pagination cursor. Omit for the first page; for the next page, pass the cursor query param from the prior response's next URL."
+      }
+    },
+    "required": [
+      "account_number"
+    ],
+    "additionalProperties": false
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "remove_option_from_watchlist",
+  "description": "Remove option contracts from the user's options watchlist. Specify the same position_type used when the contract was added (defaults to \"long\"). Contracts not on the list are no-ops. Confirm with the user before calling.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "option_ids": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        },
+        "description": "Option contract UUIDs to remove. The position_type must match how each contract was added (most likely \"long\")."
+      },
+      "position_type": {
+        "type": "string",
+        "description": "\"long\" (default) or \"short\". Must match how the contract was originally added."
+      }
+    },
+    "required": [
+      "option_ids"
+    ],
+    "additionalProperties": false
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "run_scan",
+  "description": "Execute a saved scanner (also called screener) and return live market results. A scan's filters are evaluated against current market data at request time — results are real-time, not cached.\n\nReturns the scan's title, the total number of matching instruments, a list of instrument rows (with ticker, instrument_id, type, and one cell per visible column), plus the active sort and filters. The agent should present results as a table and mention this is live data.\n\nParameters:\n- scan_id (required) — the scan identifier from get_scans or create_scan. Returns an error if the scan does not exist or does not belong to the calling user.\n\nUse get_scans first to discover available scan_ids if the user has not specified one.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "scan_id": {
+        "type": "string",
+        "description": "The scan identifier to execute. Get this from get_scans or create_scan."
+      }
+    },
+    "required": [
+      "scan_id"
+    ],
+    "additionalProperties": false
+  }
+}

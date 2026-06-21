@@ -1,0 +1,8 @@
+{
+  "name": "get_scans",
+  "description": "List the authenticated user's saved scanners (also called screeners). A scan is a saved set of filters and columns that filters the market for instruments matching specific criteria (e.g. \"RSI > 70 and Volume > 1M\"). The user creates these in Legend or via the create_scan tool.\n\nReturns one entry per scan with its id, title, active filters, column count, sort order, and a flag indicating whether the scan is managed by Cortex (Legend's AI agent). Cortex-managed scans are read-only via MCP — they can be run with run_scan but not modified with update_scan_filters or update_scan_config.\n\nThis tool takes no parameters.",
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false
+  }
+}

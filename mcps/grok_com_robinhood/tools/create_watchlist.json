@@ -1,0 +1,25 @@
+{
+  "name": "create_watchlist",
+  "description": "Create a new custom watchlist for the user. Confirm the name with the user before calling — this is a real write. Do not use this to follow a Robinhood-curated list (use follow_watchlist).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "display_name": {
+        "type": "string",
+        "description": "Name for the new watchlist (e.g. 'Tech Stocks'). Must be unique among the user's watchlists."
+      },
+      "icon_emoji": {
+        "type": "string",
+        "description": "Emoji shown next to the name (one character)."
+      },
+      "display_description": {
+        "type": "string",
+        "description": "Short description shown under the name."
+      }
+    },
+    "required": [
+      "display_name"
+    ],
+    "additionalProperties": false
+  }
+}

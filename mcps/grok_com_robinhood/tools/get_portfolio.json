@@ -1,0 +1,17 @@
+{
+  "name": "get_portfolio",
+  "description": "Get the account's portfolio market value breakdown by asset type and buying power. Use for \"how much is my account worth?\", \"what's my portfolio breakdown?\", \"how much do I have in options?\", and \"how much can I spend / afford?\" questions.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "account_number": {
+        "type": "string",
+        "description": "Brokerage account number. Obtain from get_accounts."
+      }
+    },
+    "required": [
+      "account_number"
+    ],
+    "additionalProperties": false
+  }
+}

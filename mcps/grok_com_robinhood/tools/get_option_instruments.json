@@ -1,0 +1,46 @@
+{
+  "name": "get_option_instruments",
+  "description": "List option contracts. One of chain_symbol, chain_id, or ids is required; narrow further with expiration_dates, strike_price, type, state. When looking up contracts for a specific expiration, call this in parallel for every chain whose expiration_dates (from get_option_chains) includes the date. For AM/PM/morning/evening preferences, first check settle_on_open on each chain via get_option_chains and only query matching chains.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "chain_id": {
+        "type": "string",
+        "description": "Chain UUID."
+      },
+      "chain_symbol": {
+        "type": "string",
+        "description": "Underlying ticker (e.g. 'AAPL')."
+      },
+      "expiration_dates": {
+        "type": "string",
+        "description": "Comma-separated YYYY-MM-DD expirations."
+      },
+      "strike_price": {
+        "type": "string",
+        "description": "Exact strike (e.g. '150.0000')."
+      },
+      "type": {
+        "type": "string",
+        "description": "'call' or 'put'."
+      },
+      "state": {
+        "type": "string",
+        "description": "'active' (default), 'expired', or 'inactive'. Use 'expired' to find option contracts whose expiration date has passed; 'inactive' is for delisted/withdrawn contracts that never expired."
+      },
+      "tradability": {
+        "type": "string",
+        "description": "'tradable' or 'untradable' (untradable is rejected at the tool layer)."
+      },
+      "ids": {
+        "type": "string",
+        "description": "Comma-separated instrument UUIDs."
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Pagination cursor. Omit for the first page; for the next page, pass the cursor query param from the prior response's next URL."
+      }
+    },
+    "additionalProperties": false
+  }
+}

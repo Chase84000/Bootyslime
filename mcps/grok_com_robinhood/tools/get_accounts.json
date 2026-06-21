@@ -1,0 +1,8 @@
+{
+  "name": "get_accounts",
+  "description": "List the user's brokerage accounts. Use this to look up account_number values needed by other tools. If the user has multiple accounts and hasn't specified which one, present the list and ask them to choose. Does NOT return reliable buying power — route buying-power questions through get_portfolio.",
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false
+  }
+}

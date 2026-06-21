@@ -1,0 +1,85 @@
+{
+  "name": "review_option_order",
+  "description": "Simulate an options order without placing it. Returns the current quote plus pre-trade alerts. Call this by default before place_option_order or replace_option_order unless the user has very explicitly asked to skip review.\n\nCapability: single-leg options orders only — Level 2 strategies (covered calls, cash-secured puts, long calls and puts). Multi-leg spreads (Level 3 strategies) aren't supported yet, even on option_level_3 accounts.\n\nWorkflow: confirm via get_accounts that the chosen account is agentic_allowed=true AND has option_level_2 or option_level_3. If agentic_allowed=false do NOT call. If option_level is empty or option_level_0, do NOT call — follow the get_accounts guide for how to direct the user to enroll.\n\nParameter rules:\n- legs: exactly one leg with option_id (from get_option_instruments), side, position_effect, optional ratio_quantity.\n- type: 'limit' (default), 'market', 'stop_limit', 'stop_market'. If unspecified, ask. price for limit/stop_limit; stop_price for stop_market/stop_limit.\n- market and stop_market: single-leg, GFD, regular_hours only. stop_market is sell-to-close only with stop_price below the current ask. Non-limit-immediate types are blocked in any extended-hours session.\n- Surface order_checks alerts verbatim — the detail strings carry the actual time/contract/BP values for the user.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "account_number": {
+        "type": "string",
+        "description": "Brokerage account number. Must come from the user or be clearly implied — never default from get_accounts. Must be agentic_allowed=true."
+      },
+      "legs": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "option_id": {
+              "type": "string",
+              "description": "Option instrument UUID (from get_option_instruments)."
+            },
+            "side": {
+              "type": "string",
+              "description": "'buy' or 'sell'."
+            },
+            "position_effect": {
+              "type": "string",
+              "description": "'open' (new position) or 'close' (existing position). To close a long use sell; to close a short use buy."
+            },
+            "ratio_quantity": {
+              "type": "integer",
+              "description": "Contracts for this leg per unit of the order's quantity. Defaults to 1."
+            }
+          },
+          "required": [
+            "option_id",
+            "side",
+            "position_effect"
+          ],
+          "additionalProperties": false
+        },
+        "description": "Exactly one leg."
+      },
+      "type": {
+        "type": "string",
+        "description": "'limit' (default), 'market', 'stop_limit', or 'stop_market'."
+      },
+      "quantity": {
+        "type": "string",
+        "description": "Positive integer contract count."
+      },
+      "price": {
+        "type": "string",
+        "description": "Limit price per contract (e.g. '1.50'). Required for limit/stop_limit; must be omitted for market/stop_market."
+      },
+      "stop_price": {
+        "type": "string",
+        "description": "Stop trigger price per contract. Required for stop_limit/stop_market; must be omitted for limit/market. For sell-side stop_market, must be below the current ask."
+      },
+      "time_in_force": {
+        "type": "string",
+        "description": "'gfd' (default) or 'gtc'. Market orders must be 'gfd'."
+      },
+      "market_hours": {
+        "type": "string",
+        "description": "'regular_hours' (default), 'regular_curb_hours', or 'regular_curb_overnight_hours'. Extended-hours sessions only accept limit+immediate. CURB requires an index chain with extended_hours_state='enabled' (per get_option_chains); rejection surfaces at place time."
+      },
+      "chain_symbol": {
+        "type": "string",
+        "description": "Underlying ticker (e.g. 'AAPL', 'SPXW'). Supply alongside underlying_type to include fees and collateral in the response — always do so when known."
+      },
+      "underlying_type": {
+        "type": "string",
+        "description": "'equity' or 'index'. Required alongside chain_symbol to enable the fee + collateral fetch."
+      }
+    },
+    "required": [
+      "account_number",
+      "legs",
+      "quantity"
+    ],
+    "additionalProperties": false
+  }
+}

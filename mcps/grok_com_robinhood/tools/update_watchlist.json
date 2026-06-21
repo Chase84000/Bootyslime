@@ -1,0 +1,29 @@
+{
+  "name": "update_watchlist",
+  "description": "Rename a custom watchlist or change its icon/description. Robinhood-curated lists cannot be renamed; the call will fail with 404. Provide at least one of display_name, icon_emoji, display_description.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "list_id": {
+        "type": "string",
+        "description": "UUID of the watchlist to update. Obtain from get_watchlists."
+      },
+      "display_name": {
+        "type": "string",
+        "description": "New name for the watchlist."
+      },
+      "icon_emoji": {
+        "type": "string",
+        "description": "New emoji."
+      },
+      "display_description": {
+        "type": "string",
+        "description": "New description."
+      }
+    },
+    "required": [
+      "list_id"
+    ],
+    "additionalProperties": false
+  }
+}

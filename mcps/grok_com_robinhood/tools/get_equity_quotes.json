@@ -1,0 +1,23 @@
+{
+  "name": "get_equity_quotes",
+  "description": "Get real-time stock quotes and the official last-completed-session close for one or more symbols.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "symbols": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        },
+        "description": "One or more stock symbols. Above 20 symbols, quotes still return but closes is omitted with closes_error set."
+      }
+    },
+    "required": [
+      "symbols"
+    ],
+    "additionalProperties": false
+  }
+}

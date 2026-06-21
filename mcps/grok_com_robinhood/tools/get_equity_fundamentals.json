@@ -1,0 +1,27 @@
+{
+  "name": "get_equity_fundamentals",
+  "description": "Get today's fundamentals for one or more stock symbols — valuation ratios (PE, P/B), capitalization (market cap, shares outstanding, float), today's session OHLCV, trailing volume averages, 52-week range, dividend schedule, and company profile. For real-time quotes use get_equity_quotes; for time-series price history use get_equity_historicals.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "symbols": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        },
+        "description": "One or more stock symbols (max 10 per call). Exact-ticker match — no name or partial-ticker resolution. Lowercase and whitespace-padded input is normalized to uppercase-trimmed before forwarding."
+      },
+      "bounds": {
+        "type": "string",
+        "description": "Trading session the day-level fields (open / high / low / volume / overnight_volume) are drawn from. One of 'regular' (regular trading hours), 'trading' (regular + post-market), 'extended' (pre-market + regular + post-market), '24_5' (24-hour, 5-day-trading-week). Does not affect valuation fields. overnight_volume only populates when bounds=24_5. Defaults to 'regular' when omitted."
+      }
+    },
+    "required": [
+      "symbols"
+    ],
+    "additionalProperties": false
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "get_earnings_results",
+  "description": "Get recent and upcoming earnings for ONE equity symbol — estimated/actual EPS, report date and timing (am/pm), and company-verification status. Returns the trailing up to 8 quarters. Use this for earnings-timing questions (\"does AAPL report this week?\"), EPS surprise analysis, and screening for upcoming earnings risk on a specific stock. For market-wide earnings calendar queries across many symbols, use get_earnings_calendar. Read-only.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "symbol": {
+        "type": "string",
+        "description": "Stock symbol to look up (one symbol per call). Exact-ticker match — no name or partial-ticker resolution. Lowercase and whitespace-padded input is normalized to uppercase-trimmed before forwarding. Returns the trailing up to 8 quarters of earnings for the symbol."
+      }
+    },
+    "required": [
+      "symbol"
+    ],
+    "additionalProperties": false
+  }
+}

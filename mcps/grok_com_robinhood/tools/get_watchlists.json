@@ -1,0 +1,8 @@
+{
+  "name": "get_watchlists",
+  "description": "List the user's watchlists, including both user-created custom lists and Robinhood-curated lists the user follows. Use to look up list_id values for other watchlist tools.",
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false
+  }
+}

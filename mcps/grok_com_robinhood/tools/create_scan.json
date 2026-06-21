@@ -1,0 +1,68 @@
+{
+  "name": "create_scan",
+  "description": "Create a new saved scanner (screener) on the user's account, optionally applying a preset and custom filters in a single call. Returns the new scan's id, title, applied filters, and the initial live market results.\n\nThis tool composes multiple Beacon operations:\n  1. Create an empty scan\n  2. If a non-INITIAL preset was requested: apply that preset configuration (DAILY_GAINERS, DAILY_LOSERS, HIGH_OPTIONS_VOLUME_IV, UPCOMING_EARNINGS)\n  3. If custom filters were provided: apply them (replaces any preset filters)\n  4. If a custom title was provided: set the title\n\nIf any step after the initial create fails, the scan still exists with the partial state — the response surfaces what was applied. Use update_scan_filters / update_scan_config to fix anything that failed.\n\nParameters:\n- preset (optional) — starting preset. Default: DAILY_GAINERS when no filters supplied, INITIAL when filters supplied. Valid values: INITIAL, DAILY_GAINERS, DAILY_LOSERS, HIGH_OPTIONS_VOLUME_IV, UPCOMING_EARNINGS.\n- filters (optional) — array of custom filter specs. Use the scanner-filter-specs resource to discover valid filter_type / predicate values.\n- title (optional) — custom human-readable name for the scan.\n\nExample: to make \"stocks with RSI > 70 and volume > 1M, sorted by volume desc\", call with\n  preset = \"INITIAL\"\n  filters = [\n    {\"filter_type\": \"FILTER_TYPE_RSI\", \"predicate\": \">\", \"values\": [\"70\"], \"interval\": \"1d\", \"length\": 14},\n    {\"filter_type\": \"FILTER_TYPE_VOLUME\", \"predicate\": \">\", \"values\": [\"1000000\"], \"interval\": \"1d\"}\n  ]\n  title = \"High RSI + High Volume\"",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "preset": {
+        "type": "string",
+        "description": "Starting preset for the new scan. One of: INITIAL (no preset; only valid if filters are provided), DAILY_GAINERS, DAILY_LOSERS, HIGH_OPTIONS_VOLUME_IV, UPCOMING_EARNINGS. Defaults to DAILY_GAINERS when no filters are provided, INITIAL when filters are provided."
+      },
+      "filters": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "filter_type": {
+              "type": "string",
+              "description": "Wire-format enum name, e.g. \"FILTER_TYPE_RSI\". See the scanner-filter-specs resource for valid values."
+            },
+            "predicate": {
+              "type": "string",
+              "description": "Wire-format enum name, e.g. \"PREDICATE_GREATER_THAN\". See the scanner-filter-specs resource for the predicates supported by each filter."
+            },
+            "values": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              },
+              "description": "Threshold values. Single-element for unary predicates, two-element for BETWEEN, multi-element for IN_LIST/ANY_OF."
+            },
+            "interval": {
+              "type": "string",
+              "description": "Time granularity for time-series filters (e.g. \"1d\"). Use one of the supported_intervals from the filter's scanner-filter-specs entry."
+            },
+            "length": {
+              "type": "integer",
+              "description": "Lookback length for filters that need one (e.g. RSI period of 14). Use one of the supported_lengths from the filter's scanner-filter-specs entry.",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            },
+            "plot": {
+              "type": "string",
+              "description": "Plot / price-field input for filters that have one (e.g. \"open\" or \"close\" for % Change). Use one of the supported_plots from the filter's scanner-filter-specs entry."
+            }
+          },
+          "required": [
+            "filter_type",
+            "predicate",
+            "values"
+          ],
+          "additionalProperties": false
+        },
+        "description": "Custom filters to apply after the preset. Each filter has filter_type (FILTER_TYPE_... enum), predicate (>, <, =, BETWEEN, etc.), values, optional interval (e.g. 1d), and optional length (e.g. 14 for RSI). See the scanner-filter-specs resource for valid filter_type / predicate combinations."
+      },
+      "title": {
+        "type": "string",
+        "description": "Optional custom title for the saved scan. If omitted, Beacon assigns a default title based on the preset."
+      }
+    },
+    "additionalProperties": false
+  }
+}

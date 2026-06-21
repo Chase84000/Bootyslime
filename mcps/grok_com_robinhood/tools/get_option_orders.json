@@ -1,0 +1,45 @@
+{
+  "name": "get_option_orders",
+  "description": "Fetch options orders for an account — list mode (newest first; open and closed, including fills, cancellations, and rejections) or single-order mode by passing order_id. When the user asks for \"orders\" without specifying equity or options, call both get_option_orders and get_equity_orders in parallel.\n\nFiltering tips:\n- Prefer narrow queries: combine state and/or created_at_gte for specific questions — the per-page cap is fixed.\n- chain_ids filters by underlying chain UUID (from get_option_chains).\n- created_at_gte: interpret relative times in the user's timezone, convert to UTC before sending.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "account_number": {
+        "type": "string",
+        "description": "Brokerage account number. Must come from the user or be clearly implied — never default from get_accounts."
+      },
+      "order_id": {
+        "type": "string",
+        "description": "Filter to a single order by UUID. The response shape is unchanged (orders[] with at most one entry); empty when the order does not belong to account_number."
+      },
+      "state": {
+        "type": "string",
+        "description": "Filter by single state: queued, confirmed, partially_filled, filled, rejected, cancelled, failed, voided, pending_cancelled."
+      },
+      "created_at_gte": {
+        "type": "string",
+        "description": "Lower bound (inclusive). ISO 8601 UTC or YYYY-MM-DD; naive values are interpreted as UTC."
+      },
+      "chain_ids": {
+        "type": "string",
+        "description": "Comma-separated chain UUIDs (from get_option_chains) to filter by underlying."
+      },
+      "underlying_type": {
+        "type": "string",
+        "description": "'equity' or 'index'."
+      },
+      "placed_agent": {
+        "type": "string",
+        "description": "Filter to one source: 'user', 'agentic' (MCP), 'recurring', 'drip', etc."
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Pagination cursor. Omit for the first page; for the next page, pass the cursor query param from the prior response's next URL."
+      }
+    },
+    "required": [
+      "account_number"
+    ],
+    "additionalProperties": false
+  }
+}

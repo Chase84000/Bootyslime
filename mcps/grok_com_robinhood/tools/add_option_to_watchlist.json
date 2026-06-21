@@ -1,0 +1,27 @@
+{
+  "name": "add_option_to_watchlist",
+  "description": "Add option contracts to the user's options watchlist. Works for both equity options (AAPL, NVDA) and index options (SPX, NDX, RUT). Source option_ids from get_option_instruments. Confirm with the user before calling — this is a real write.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "option_ids": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        },
+        "description": "Option contract UUIDs to add. Each becomes a single-leg position on the user's options watchlist. Source from get_option_instruments."
+      },
+      "position_type": {
+        "type": "string",
+        "description": "\"long\" (default) or \"short\". Applies to every option_id in this call. For mixed long/short adds, issue two calls."
+      }
+    },
+    "required": [
+      "option_ids"
+    ],
+    "additionalProperties": false
+  }
+}

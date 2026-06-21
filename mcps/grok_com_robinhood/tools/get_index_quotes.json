@@ -1,0 +1,23 @@
+{
+  "name": "get_index_quotes",
+  "description": "Get real-time values for one or more market indexes by instrument ID. Returns current index level, state, and timestamps.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "instrument_ids": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        },
+        "description": "One or more index instrument IDs (UUIDs) to fetch current values for. Obtain IDs from the get_indexes tool."
+      }
+    },
+    "required": [
+      "instrument_ids"
+    ],
+    "additionalProperties": false
+  }
+}

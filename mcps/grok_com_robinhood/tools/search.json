@@ -1,0 +1,25 @@
+{
+  "name": "search",
+  "description": "Resolve a natural-language query to Robinhood instruments (stocks/ETFs), crypto pairs, or market indexes. Use when the user names an asset by name (or partial name) instead of a ticker/pair/index symbol, or when you need an instrument_id / currency-pair UUID / market-index id for a downstream tool. Defaults to instrument search; pass asset_type=\"currency_pair\" for crypto or asset_type=\"market_index\" for indexes (SPX, NDX, DJI, etc.). Instrument results carry symbol + instrument_id (use with get_equity_quotes / get_equity_tradability / place_equity_order or any instrument_id-based tool). Crypto results carry hyphenated symbol (e.g. BTC-USD) + id — the symbol routes to crypto quote/order tools, the id routes to watchlist tools as currency_pair_ids. Market-index results carry symbol + id — pass id to index quote tools for current values, or in the index_ids array of watchlist tools.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Natural-language search query: company name, partial name, or ticker (e.g. \"apple\", \"tesla motors\", \"AAPL\"). Required."
+      },
+      "asset_type": {
+        "type": "string",
+        "description": "Asset category to search. Supported: \"instrument\" (US-listed stocks/ETFs), \"currency_pair\" (crypto pairs like BTC-USD), and \"market_index\" (e.g. SPX, NDX, DJI). Defaults to \"instrument\" when omitted. More categories (events, futures) will be added as their corresponding tools land."
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Max results to return. Defaults to 10; clamped to 20."
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "additionalProperties": false
+  }
+}

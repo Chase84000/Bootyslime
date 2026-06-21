@@ -1,0 +1,41 @@
+{
+  "name": "get_equity_orders",
+  "description": "Fetch equity orders for an account — list mode (newest first; open and closed, including fills, cancellations, rejections) or single-order mode by passing order_id. When the user asks for \"orders\" without specifying equity or options, call both get_equity_orders and get_option_orders in parallel.\n\nFiltering tips:\n- Prefer narrow queries: combine state, symbol, and/or created_at_gte for specific questions (e.g. \"my filled AAPL orders this week\") — the per-page cap is fixed.\n- created_at_gte: interpret relative times in the user's timezone, convert to UTC before sending.\n- symbol forces a symbol→instrument lookup; omit it if you don't need it.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "account_number": {
+        "type": "string",
+        "description": "Brokerage account number. Must come from the user or be clearly implied — never default from get_accounts."
+      },
+      "order_id": {
+        "type": "string",
+        "description": "Filter to a single order by UUID. The response shape is unchanged (orders[] with at most one entry); empty when the order does not belong to account_number."
+      },
+      "state": {
+        "type": "string",
+        "description": "Filter by single state: new, queued, confirmed, unconfirmed, partially_filled, filled, cancelled, rejected, failed, voided."
+      },
+      "symbol": {
+        "type": "string",
+        "description": "Filter to one symbol (triggers a symbol→instrument lookup before the orders call)."
+      },
+      "created_at_gte": {
+        "type": "string",
+        "description": "Lower bound (inclusive). ISO 8601 UTC or YYYY-MM-DD; naive values are interpreted as UTC."
+      },
+      "placed_agent": {
+        "type": "string",
+        "description": "Filter to one source: 'user', 'agentic' (MCP), 'recurring', 'drip', etc."
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Pagination cursor. Omit for the first page; for the next page, pass the cursor query param from the prior response's next URL."
+      }
+    },
+    "required": [
+      "account_number"
+    ],
+    "additionalProperties": false
+  }
+}

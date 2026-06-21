@@ -1,0 +1,28 @@
+{
+  "name": "get_equity_tradability",
+  "description": "Check tradability for up to 10 equity symbols on a given account: per-session eligibility and fractional. Call before placing an order to surface restrictions. Exact-ticker match — no name or partial-ticker resolution.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "account_number": {
+        "type": "string",
+        "description": "Brokerage account number. Must come from the user or be clearly implied — never default from get_accounts."
+      },
+      "symbols": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        },
+        "description": "Stock symbols, max 10 per call. With more than 10, split across multiple calls of 10 or fewer. Exact-ticker match only."
+      }
+    },
+    "required": [
+      "account_number",
+      "symbols"
+    ],
+    "additionalProperties": false
+  }
+}

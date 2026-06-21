@@ -1,0 +1,56 @@
+{
+  "name": "review_equity_order",
+  "description": "Simulate a stock order without placing it. Returns the current quote plus pre-trade alerts (buying power, PDT, instrument halt, etc.). Call this by default before place_equity_order unless the user has very explicitly asked to skip review. Requires an agentic_allowed=true account; non-agentic accounts are rejected — do not call.\n\nParameter rules:\n- If the user has not specified type, ask. For immediate fills with price protection, prefer a marketable limit at the current ask over a plain market.\n- Provide exactly one of quantity or dollar_amount; dollar_amount requires type=market (server computes shares from last_trade_price).\n- Fractional shares: only on type=market with market_hours=regular_hours, eligible accounts, up to 6 decimal places, no short sells.\n- limit_price required for limit/stop_limit; stop_price required for stop_market/stop_limit.\n- Fractional and dollar-based orders only place in regular_hours; the tool rejects them in other sessions.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "account_number": {
+        "type": "string",
+        "description": "Brokerage account number. Must come from the user or be clearly implied — never default from get_accounts. Must be agentic_allowed=true; non-agentic accounts are rejected."
+      },
+      "symbol": {
+        "type": "string",
+        "description": "Stock symbol."
+      },
+      "side": {
+        "type": "string",
+        "description": "'buy' or 'sell'."
+      },
+      "type": {
+        "type": "string",
+        "description": "'market', 'limit', 'stop_market', or 'stop_limit'."
+      },
+      "quantity": {
+        "type": "string",
+        "description": "Number of shares. Decimals (fractional) allowed for market + regular_hours only."
+      },
+      "dollar_amount": {
+        "type": "string",
+        "description": "USD notional (e.g. '100.00'). Only valid with type=market."
+      },
+      "limit_price": {
+        "type": "string",
+        "description": "Limit price; required for limit or stop_limit."
+      },
+      "stop_price": {
+        "type": "string",
+        "description": "Stop trigger price; required for stop_market or stop_limit."
+      },
+      "time_in_force": {
+        "type": "string",
+        "description": "'gfd' (good for day) or 'gtc' (good till cancelled). Default: gfd."
+      },
+      "market_hours": {
+        "type": "string",
+        "description": "'regular_hours' (default), 'extended_hours', or 'all_day_hours'."
+      }
+    },
+    "required": [
+      "account_number",
+      "symbol",
+      "side",
+      "type"
+    ],
+    "additionalProperties": false
+  }
+}

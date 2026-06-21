@@ -1,0 +1,8 @@
+{
+  "name": "get_popular_watchlists",
+  "description": "Discover Robinhood-curated lists the user can follow (e.g. '100 Most Popular', 'Daily Movers'). Use to find a list_id, then pass it to follow_watchlist.",
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "get_earnings_calendar",
+  "description": "List earnings reports scheduled across the market over a date window (up to 31 days), optionally limited to high-market-cap names. Returns one entry per report event — estimated/actual EPS, report date and timing (am/pm), and company-verification status. Use this for market-wide discovery (\"what large-caps report this week?\"). For a specific known ticker, use get_earnings_results instead. Read-only.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "start_date": {
+        "type": "string",
+        "description": "Window anchor, YYYY-MM-DD. Defaults to today (US/Eastern) when omitted."
+      },
+      "days": {
+        "type": "integer",
+        "description": "Window length in days, measured from start_date. Defaults to 7. Positive = forward window (e.g. 7 = the next 7 days, inclusive of start_date); negative = look-back window (e.g. -7 = the 7 days ending at start_date). Must be a non-zero value between -31 and 31 — windows wider than 31 days are rejected."
+      },
+      "filter": {
+        "type": "string",
+        "description": "Optional result filter. Set to 'high_market_cap' to limit the calendar to high-market-cap names (market cap over $1B) — useful for 'what large-caps report this week' style questions. Omit for all names."
+      }
+    },
+    "additionalProperties": false
+  }
+}

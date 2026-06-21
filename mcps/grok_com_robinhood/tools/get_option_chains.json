@@ -1,0 +1,18 @@
+{
+  "name": "get_option_chains",
+  "description": "List option chains for one or more underlyings. A chain describes the full set of expiration dates and contracts for a given underlying. One of underlying_symbol or ids is required.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "ids": {
+        "type": "string",
+        "description": "Comma-separated chain UUIDs."
+      },
+      "underlying_symbol": {
+        "type": "string",
+        "description": "Ticker filter; covers equity and index underlyings (e.g. 'AAPL', 'SPX')."
+      }
+    },
+    "additionalProperties": false
+  }
+}

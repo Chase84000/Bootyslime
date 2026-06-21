@@ -1,0 +1,68 @@
+{
+  "name": "update_scan_filters",
+  "description": "Replace the filters on an existing saved scan. The complete filter set provided replaces whatever filters the scan had — this is REPLACE semantics, not merge. To add a single filter to an existing scan, the agent must first read the scan (via get_scans or run_scan), then call this tool with all the existing filters plus the new one.\n\nParameters:\n- scan_id (required) — the scan to modify. Get from get_scans or create_scan.\n- filters (required) — the complete new filter set. Send [] to clear all filters. Each filter has filter_type (FILTER_TYPE_... enum), predicate, values, optional interval/length. See the scanner-filter-specs resource for valid combinations.\n\nRestrictions:\n- Cortex-managed scans (cortex_managed: true in get_scans) are rejected with a user-friendly error.\n- Returns an error and does not apply any change if any filter fails validation.\n\nReturns the scan with its new filters and fresh live results.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "scan_id": {
+        "type": "string",
+        "description": "The scan to modify. Get this from get_scans or create_scan. Cortex-managed scans (cortex_managed: true in get_scans output) are rejected."
+      },
+      "filters": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "filter_type": {
+              "type": "string",
+              "description": "Wire-format enum name, e.g. \"FILTER_TYPE_RSI\". See the scanner-filter-specs resource for valid values."
+            },
+            "predicate": {
+              "type": "string",
+              "description": "Wire-format enum name, e.g. \"PREDICATE_GREATER_THAN\". See the scanner-filter-specs resource for the predicates supported by each filter."
+            },
+            "values": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              },
+              "description": "Threshold values. Single-element for unary predicates, two-element for BETWEEN, multi-element for IN_LIST/ANY_OF."
+            },
+            "interval": {
+              "type": "string",
+              "description": "Time granularity for time-series filters (e.g. \"1d\"). Use one of the supported_intervals from the filter's scanner-filter-specs entry."
+            },
+            "length": {
+              "type": "integer",
+              "description": "Lookback length for filters that need one (e.g. RSI period of 14). Use one of the supported_lengths from the filter's scanner-filter-specs entry.",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            },
+            "plot": {
+              "type": "string",
+              "description": "Plot / price-field input for filters that have one (e.g. \"open\" or \"close\" for % Change). Use one of the supported_plots from the filter's scanner-filter-specs entry."
+            }
+          },
+          "required": [
+            "filter_type",
+            "predicate",
+            "values"
+          ],
+          "additionalProperties": false
+        },
+        "description": "The complete set of filters the scan should have after the update. REPLACE semantics — to add a filter, supply all existing filters plus the new one. To remove a filter, omit it from the array. To clear all filters, send []. Each filter: filter_type (FILTER_TYPE_... enum), predicate (>, <, =, BETWEEN, etc.), values, optional interval (e.g. 1d), optional length (e.g. 14 for RSI). See the scanner-filter-specs resource."
+      }
+    },
+    "required": [
+      "scan_id",
+      "filters"
+    ],
+    "additionalProperties": false
+  }
+}

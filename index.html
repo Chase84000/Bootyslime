@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Finance Lens</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="backdrop backdrop-a"></div>
+    <div class="backdrop backdrop-b"></div>
+
+    <main class="shell">
+      <section class="hero card">
+        <div class="hero-copy">
+          <p class="eyebrow">Local finance dashboard</p>
+          <h1>Drop in your CSV and get instant analysis.</h1>
+          <p class="lede">
+            Drag a bank, broker, or budget export into the page. It auto-detects
+            columns, merges multiple files, and builds a clean cash-flow view
+            without Python or extra setup.
+          </p>
+          <div class="hero-actions">
+            <label class="button primary" for="file-input">Choose CSV</label>
+            <label class="button secondary" for="folder-input">Choose Folder</label>
+            <button class="button ghost" id="sample-btn" type="button">Load sample</button>
+          </div>
+          <div class="hint">
+            Accepts single files, multiple files, or a whole folder. Supports common
+            columns like <code>date</code>, <code>description</code>, <code>amount</code>,
+            <code>debit</code>, and <code>credit</code>.
+          </div>
+        </div>
+
+        <div class="hero-panel">
+          <div id="dropzone" class="dropzone">
+            <div class="drop-icon">↧</div>
+            <div class="drop-title">Drop CSV files here</div>
+            <div class="drop-subtitle">or click to browse</div>
+          </div>
+          <div class="file-list" id="file-list">
+            <div class="file-empty">No files loaded yet.</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="toolbar card">
+        <div class="field">
+          <label for="month-filter">Month</label>
+          <select id="month-filter">
+            <option value="">All months</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="top-count">Top items</label>
+          <input id="top-count" type="number" min="3" max="25" value="8" />
+        </div>
+        <div class="field grow">
+          <label for="search">Search descriptions</label>
+          <input id="search" type="text" placeholder="Coffee, rent, salary..." />
+        </div>
+        <div class="toolbar-meta" id="status">Waiting for a file.</div>
+      </section>
+
+      <section class="metrics" id="metrics"></section>
+
+      <section class="card robinhood-panel">
+        <div class="panel-head">
+          <div>
+            <p class="panel-kicker">Robinhood bridge</p>
+            <h2>Your live snapshot</h2>
+          </div>
+          <div class="bridge-status" id="bridge-status">Waiting for local API...</div>
+        </div>
+
+        <div class="bridge-grid">
+          <article class="bridge-card">
+            <h3>Accounts</h3>
+            <div id="rh-accounts" class="bridge-list"></div>
+          </article>
+
+          <article class="bridge-card">
+            <h3>Equity positions</h3>
+            <div id="rh-equities" class="bridge-list"></div>
+          </article>
+
+          <article class="bridge-card">
+            <h3>Options positions</h3>
+            <div id="rh-options" class="bridge-list"></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="grid">
+        <article class="card panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Monthly flow</p>
+              <h2>Cash movement</h2>
+            </div>
+          </div>
+          <div id="monthly-chart" class="chart"></div>
+        </article>
+
+        <article class="card panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Spending</p>
+              <h2>Top categories</h2>
+            </div>
+          </div>
+          <div id="category-list" class="bar-list"></div>
+        </article>
+
+        <article class="card panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Merchants</p>
+              <h2>Top descriptions</h2>
+            </div>
+          </div>
+          <div id="merchant-list" class="bar-list"></div>
+        </article>
+
+        <article class="card panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Patterns</p>
+              <h2>Recurring transactions</h2>
+            </div>
+          </div>
+          <div id="recurring-list" class="pattern-list"></div>
+        </article>
+      </section>
+    </main>
+
+    <input id="file-input" type="file" accept=".csv,text/csv" multiple hidden />
+    <input id="folder-input" type="file" accept=".csv,text/csv" multiple webkitdirectory hidden />
+
+    <script src="app.js"></script>
+  </body>
+</html>

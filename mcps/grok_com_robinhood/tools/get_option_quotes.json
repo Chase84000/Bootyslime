@@ -1,0 +1,23 @@
+{
+  "name": "get_option_quotes",
+  "description": "Get real-time quotes for one or more option contracts by instrument UUID, plus the official prior-session close for each.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "instrument_ids": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        },
+        "description": "Option instrument UUIDs. Above 20, quotes still return but closes is omitted with closes_error set."
+      }
+    },
+    "required": [
+      "instrument_ids"
+    ],
+    "additionalProperties": false
+  }
+}

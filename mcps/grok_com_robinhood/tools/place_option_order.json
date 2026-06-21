@@ -1,0 +1,81 @@
+{
+  "name": "place_option_order",
+  "description": "Place a real options order with real money.\n\nWorkflow: by default call review_option_order first, present the alerts, fees, collateral, and quote, and get explicit user confirmation before calling this tool. Skip review only when the user has very explicitly asked to bypass it (e.g. \"skip the review\", \"just place it, don't review\") — a generic \"place this order\" is NOT a bypass.\n\nCapability: single-leg options orders only — Level 2 strategies (covered calls, cash-secured puts, long calls and puts). Multi-leg spreads (Level 3 strategies) aren't supported yet, even on option_level_3 accounts.\n\nAccount requirements: confirm via get_accounts that the chosen account is agentic_allowed=true AND has option_level_2 or option_level_3. If agentic_allowed=false do NOT call. If option_level is empty or option_level_0, do NOT call; follow the get_accounts guide for how to direct the user to enroll.\n\nAlert handling: pre-trade alerts surface only in review_option_order. After the user has acknowledged the reviewed alert, call this tool with the same parameters.\n\nIdempotency: pass a fresh UUID as ref_id on the first call for each logical order, and re-send the SAME ref_id on retries of transient transport failures. Use a new ref_id only when the user wants a new order.\n\nTo find option_id: get_option_chains → get_option_instruments filtered by expiration_date/strike_price/type.\n\nParameter rules:\n- legs: exactly one leg. Direction derived from side (buy → debit, sell → credit).\n- type: 'limit' (default), 'market', 'stop_limit', 'stop_market'. price for limit/stop_limit; stop_price for stop_market/stop_limit.\n- market and stop_market: regular_hours + GFD only; stop_market is sell-to-close only with stop_price below the current ask.\n\nSupported in the Robinhood apps only (not via this MCP):\n- multi-leg structures: spreads, condors, butterflies, etc.\n\nNot currently supported anywhere (including the Robinhood apps):\n- combo orders. At Robinhood, \"combo\" specifically means a stock-option combo: one option leg paired with 100 shares of the underlying equity. In broader industry use, \"combo\" without qualifier sometimes refers to multi-leg option structures.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "account_number": {
+        "type": "string",
+        "description": "Brokerage account number. Must come from the user or be clearly implied — never default from get_accounts. Must be agentic_allowed=true."
+      },
+      "legs": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "option_id": {
+              "type": "string",
+              "description": "Option instrument UUID (from get_option_instruments)."
+            },
+            "side": {
+              "type": "string",
+              "description": "'buy' or 'sell'."
+            },
+            "position_effect": {
+              "type": "string",
+              "description": "'open' (new position) or 'close' (existing position). To close a long use sell; to close a short use buy."
+            },
+            "ratio_quantity": {
+              "type": "integer",
+              "description": "Contracts for this leg per unit of the order's quantity. Defaults to 1."
+            }
+          },
+          "required": [
+            "option_id",
+            "side",
+            "position_effect"
+          ],
+          "additionalProperties": false
+        },
+        "description": "Exactly one leg."
+      },
+      "type": {
+        "type": "string",
+        "description": "'limit' (default), 'market', 'stop_limit', or 'stop_market'. Should match the type the user reviewed."
+      },
+      "quantity": {
+        "type": "string",
+        "description": "Positive integer contract count."
+      },
+      "price": {
+        "type": "string",
+        "description": "Limit price per contract. Required for limit/stop_limit; must be omitted for market/stop_market."
+      },
+      "stop_price": {
+        "type": "string",
+        "description": "Stop trigger price per contract. Required for stop_limit/stop_market; must be omitted for limit/market."
+      },
+      "time_in_force": {
+        "type": "string",
+        "description": "'gfd' (default) or 'gtc'. Market orders must be 'gfd'."
+      },
+      "market_hours": {
+        "type": "string",
+        "description": "'regular_hours' (default), 'regular_curb_hours', or 'regular_curb_overnight_hours'. Non-limit-immediate orders only place in regular_hours. CURB requires an index chain with extended_hours_state='enabled'."
+      },
+      "ref_id": {
+        "type": "string",
+        "description": "Idempotency key (UUID). Generate once per logical order and re-send on retry. Omitting falls back to a server-generated key."
+      }
+    },
+    "required": [
+      "account_number",
+      "legs",
+      "quantity"
+    ],
+    "additionalProperties": false
+  }
+}

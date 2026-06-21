@@ -1,0 +1,47 @@
+{
+  "name": "remove_from_watchlist",
+  "description": "Remove items from a watchlist. Exactly one of symbols (stocks/ETFs), currency_pair_ids (crypto), or index_ids (market indexes) is required — mutually exclusive. For options use remove_option_from_watchlist. Items not on the list are no-ops (not errors). Confirm with the user before calling.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "list_id": {
+        "type": "string",
+        "description": "UUID of the watchlist to remove items from."
+      },
+      "symbols": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        },
+        "description": "Stock symbols to remove (e.g. ['AAPL']). Mutually exclusive with currency_pair_ids and index_ids."
+      },
+      "currency_pair_ids": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        },
+        "description": "Currency-pair UUIDs to remove. Mutually exclusive with symbols and index_ids."
+      },
+      "index_ids": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        },
+        "description": "Index UUIDs to remove. Mutually exclusive with symbols and currency_pair_ids."
+      }
+    },
+    "required": [
+      "list_id"
+    ],
+    "additionalProperties": false
+  }
+}

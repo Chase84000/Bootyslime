@@ -1,0 +1,14 @@
+{
+  "name": "get_indexes",
+  "description": "Get index data for market indexes by symbol.\nOptionally pass a comma-separated list of symbols (e.g. 'SPX,NDX,DJI') to filter results. Omit symbols to return all available indexes.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "symbols": {
+        "type": "string",
+        "description": "Comma-separated list of index symbols to look up (e.g. 'SPX,NDX'). Omit to return all available indexes."
+      }
+    },
+    "additionalProperties": false
+  }
+}

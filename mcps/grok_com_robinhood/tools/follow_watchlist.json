@@ -1,0 +1,17 @@
+{
+  "name": "follow_watchlist",
+  "description": "Follow a Robinhood-curated list so it appears in the user's watchlists. Confirm with the user before calling. Use only for curated lists; the user already owns their custom lists.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "list_id": {
+        "type": "string",
+        "description": "UUID of the Robinhood-curated list to follow. Obtain from get_popular_watchlists."
+      }
+    },
+    "required": [
+      "list_id"
+    ],
+    "additionalProperties": false
+  }
+}

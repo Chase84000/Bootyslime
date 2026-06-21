@@ -1,0 +1,44 @@
+{
+  "name": "get_equity_historicals",
+  "description": "Get OHLCV bars for one or more equity symbols across an explicit time range. Use this for charting, \"recent activity\" questions, and backtesting. The server auto-selects an interval when one is not provided.\n\nParameter rules:\n- interval is optional; when omitted, the server auto-selects an interval that targets ~2,500 bars across the requested range. Provide an explicit interval only when you need a specific granularity.\n- interval values are fixed; the server does NOT aggregate intermediate bars. For a custom interval (e.g. 3-minute), request the next-finer fixed interval and aggregate client-side.\n- bounds defaults to 'regular' (RTH only). Use 'extended' or '24_5' only when the user explicitly asks about extended-hours activity.\n- adjustment_type defaults to 'split' (split-adjusted, the right default for backtesting). Use 'none' for raw prices, 'all' for split + dividend adjustment.\n- If the range would produce more bars than the upstream allows at the explicitly requested interval, narrow the range or coarsen the interval — the call is rejected before reaching upstream. The cap does not apply when interval is auto-selected.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "symbols": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        },
+        "description": "One or more stock symbols (uppercase). Up to 10 per call."
+      },
+      "start_time": {
+        "type": "string",
+        "description": "Start of the range (RFC3339 UTC, e.g. '2026-01-01T00:00:00Z'). Required."
+      },
+      "end_time": {
+        "type": "string",
+        "description": "End of the range (RFC3339 UTC). Optional — when omitted, defaults to the current time."
+      },
+      "interval": {
+        "type": "string",
+        "description": "Bar interval. Optional — when omitted, the server picks an interval that targets ~2,500 bars across the requested range. Intraday: 15second, 30second, minute, 5minute, 10minute, 30minute, hour, 4hour. Interday: day, week, month, 3month, 6month, year, 5year, 10year, 20year, 50year. Note: the 1-minute bar is named 'minute' (not '1minute')."
+      },
+      "bounds": {
+        "type": "string",
+        "description": "Session bounds. One of 'regular' (RTH, default), 'extended', 'trading', '24_5', '24_7', 'hyper_trading'."
+      },
+      "adjustment_type": {
+        "type": "string",
+        "description": "Corporate-action adjustment: 'none' (raw prices), 'split' (default; right for backtesting), or 'all' (split + dividend; intraday only)."
+      }
+    },
+    "required": [
+      "symbols",
+      "start_time"
+    ],
+    "additionalProperties": false
+  }
+}
