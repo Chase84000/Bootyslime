@@ -58,7 +58,7 @@ The app serves a cached Robinhood snapshot from [robinhood-cache.json](C:\Users\
 
 That means the dashboard can show your accounts and positions without copy/paste.
 
-The snapshot is read-only and local. If you want it refreshed, ask me to sync the cache again from Robinhood MCP.
+The snapshot is read-only and local. Use the MCP bridge or refresh the cache manually when needed.
 
 ## Wealthfront bridge
 
@@ -71,9 +71,9 @@ Workflow:
 3. Paste your Plaid `client_id` and `secret`
 4. Click `Open Wealthfront bridge`
 5. Finish Plaid Link in the browser
-6. The bridge writes [wealthfront-cache.json](C:\Users\nouve.DESKTOP-IDVQJ79\Bootyslime\wealthfront-cache.json)
+6. The bridge writes `wealthfront-cache.json`
 
-For daily refreshes, run [wealthfront_sync.py](C:\Users\nouve.DESKTOP-IDVQJ79\Bootyslime\wealthfront_sync.py) on a schedule. A Windows Task Scheduler job that runs `python wealthfront_sync.py` once per day is enough.
+For daily refreshes, run `wealthfront_sync.py` on a schedule (e.g. Windows Task Scheduler).
 
 ## Notes
 
