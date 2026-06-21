@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import argparse
 import json
+import os
 import uuid
 from pathlib import Path
 
@@ -12,10 +14,21 @@ from wealthfront_plaid_common import (
     ensure_state_defaults,
     exchange_public_token,
     load_state,
+    reset_plaid_link,
     save_state,
     sync_wealthfront,
     create_link_token,
 )
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--cache-path", default=None, help="Override cache file path")
+parser.add_argument("--title", default="Wealthfront", help="Institution title to show in UI")
+parser.add_argument("--institution", default="wealthfront", help="Institution key")
+args, _ = parser.parse_known_args()
+if args.cache_path:
+    os.environ["PLAID_CACHE_OVERRIDE"] = args.cache_path
+INSTITUTION_TITLE = args.title
+INSTITUTION_KEY = args.institution.lower()
 
 
 APP = Flask(__name__)
@@ -44,7 +57,7 @@ PAGE = """<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Finance Lens - Wealthfront Bridge</title>
+  <title>Finance Lens - {{TITLE}} Bridge</title>
   <style>
     :root {
       color-scheme: dark;
@@ -137,8 +150,8 @@ PAGE = """<!doctype html>
 <body>
   <div class="shell">
     <div class="hero">
-      <h1>Wealthfront bridge</h1>
-      <p>Use Plaid Link to connect Wealthfront, store the resulting access token locally, and sync data into Finance Lens.</p>
+      <h1>{{TITLE}} bridge</h1>
+      <p>Use Plaid Link to connect {{TITLE}}, store the resulting access token locally, and sync data into Finance Lens.</p>
       <div class="status">
         <div class="stat"><div class="label">Configuration</div><div class="value" id="configured">Loading...</div></div>
         <div class="stat"><div class="label">Linked</div><div class="value" id="linked">Loading...</div></div>
@@ -173,19 +186,20 @@ PAGE = """<!doctype html>
       </div>
       <div class="actions">
         <button class="primary" id="save-config">Save settings</button>
-        <button id="connect">Connect Wealthfront</button>
+        <button id="connect">Connect {{TITLE}}</button>
         <button id="sync-now">Sync now</button>
+        <button id="reset-link" style="background:#3a2a2a;color:#ff9999;">Reset link (fix cursor errors)</button>
       </div>
       <div class="note" id="message"></div>
     </div>
 
     <div class="panel">
       <h2>How this works</h2>
-      <p>Finance Lens does not talk to Wealthfront directly. Plaid Link collects the authorization once, then this bridge stores the Plaid access token locally and refreshes a local cache file for the desktop app.</p>
+      <p>Finance Lens does not talk to {{TITLE}} directly. Plaid Link collects the authorization once, then this bridge stores the Plaid access token locally and refreshes a local cache file for the desktop app.</p>
       <pre>1. Save Plaid client ID and secret
-2. Click Connect Wealthfront
+2. Click Connect {{TITLE}}
 3. Finish the Plaid Link flow
-4. Finance Lens reloads wealthfront-cache.json</pre>
+4. Finance Lens reloads the cache.json</pre>
     </div>
   </div>
 
@@ -280,6 +294,16 @@ PAGE = """<!doctype html>
     document.getElementById('sync-now').addEventListener('click', async () => {
       try { await syncNow(); } catch (err) { setMessage(err.message, 'error'); }
     });
+    document.getElementById('reset-link').addEventListener('click', async () => {
+      if (!confirm('This will forget the current Plaid access token and cursor for this link.\nYou will need to Connect again.')) return;
+      try {
+        const res = await fetch('/api/reset', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Reset failed');
+        setMessage('Link data cleared. Click Connect to link again.', 'success');
+        await refreshStatus();
+      } catch (err) { setMessage(err.message, 'error'); }
+    });
 
     refreshStatus().catch(err => setMessage(err.message, 'error'));
   </script>
@@ -290,6 +314,8 @@ PAGE = """<!doctype html>
 
 @APP.get("/")
 def index() -> Response:
+    PAGE = PAGE.replace("Wealthfront", INSTITUTION_TITLE)
+    PAGE = PAGE.replace("wealthfront", INSTITUTION_KEY)
     return Response(PAGE, mimetype="text/html")
 
 
@@ -338,6 +364,15 @@ def api_sync():
     try:
         cache = sync_wealthfront()
         return jsonify(cache)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@APP.post("/api/reset")
+def api_reset():
+    try:
+        reset_plaid_link()
+        return jsonify({"ok": True, "message": "Plaid link data (token + cursor) cleared."})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
 

@@ -54,7 +54,7 @@ It also supports many common alternatives:
 
 ## Robinhood bridge
 
-The app serves a cached Robinhood snapshot from [robinhood-cache.json](C:\Users\nouve.DESKTOP-IDVQJ79\Bootyslime\robinhood-cache.json) through [bridge-server.js](C:\Users\nouve.DESKTOP-IDVQJ79\Bootyslime\bridge-server.js).
+The app serves a cached Robinhood snapshot from [robinhood-cache.json](robinhood-cache.json) through [bridge-server.js](bridge-server.js).
 
 That means the dashboard can show your accounts and positions without copy/paste.
 

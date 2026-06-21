@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -8,12 +9,15 @@ from typing import Any
 
 from plaid import ApiClient, Configuration
 from plaid.api.plaid_api import PlaidApi
+from plaid.exceptions import ApiException
 from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
 from plaid.model.investments_holdings_get_request import InvestmentsHoldingsGetRequest
 from plaid.model.investments_transactions_get_request import InvestmentsTransactionsGetRequest
 from plaid.model.link_token_create_request import LinkTokenCreateRequest
 from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
 from plaid.model.transactions_sync_request import TransactionsSyncRequest
+from plaid.model.transactions_get_request import TransactionsGetRequest
+from plaid.model.transactions_get_request_options import TransactionsGetRequestOptions
 from plaid.model.country_code import CountryCode
 from plaid.model.products import Products
 
@@ -21,6 +25,8 @@ from plaid.model.products import Products
 ROOT = Path(__file__).resolve().parent
 CONFIG_FILE = Path.home() / ".finance_lens_plaid.json"
 DEFAULT_CACHE_FILE = ROOT / "wealthfront-cache.json"
+if os.environ.get("PLAID_CACHE_OVERRIDE"):
+    DEFAULT_CACHE_FILE = Path(os.environ["PLAID_CACHE_OVERRIDE"]).expanduser()
 DEFAULT_CLIENT_NAME = "Finance Lens"
 DEFAULT_LANGUAGE = "en"
 DEFAULT_COUNTRY = "US"
@@ -53,6 +59,16 @@ def load_state() -> dict[str, Any]:
 
 def save_state(state: dict[str, Any]) -> None:
     save_json(CONFIG_FILE, state)
+
+
+def reset_plaid_link(state: dict[str, Any] | None = None) -> None:
+    """Clears access token + cursor so the next Link flow starts completely fresh.
+    Useful when you get 'cursor not associated with access_token' errors.
+    """
+    state = ensure_state_defaults(state or load_state())
+    for key in ("access_token", "item_id", "transactions_cursor", "linked_at", "last_sync"):
+        state.pop(key, None)
+    save_state(state)
 
 
 def ensure_state_defaults(state: dict[str, Any]) -> dict[str, Any]:
@@ -120,6 +136,12 @@ def exchange_public_token(public_token: str, state: dict[str, Any] | None = None
     if payload.get("item_id"):
         state["item_id"] = payload["item_id"]
     state["linked_at"] = _now_iso()
+
+    # CRITICAL: When you get a *new* access_token (re-link or new item),
+    # any previous transactions_cursor is invalid for this token.
+    # Plaid will return: "cursor not associated with access_token"
+    state.pop("transactions_cursor", None)
+
     save_state(state)
     return payload
 
@@ -150,18 +172,64 @@ def sync_wealthfront(state: dict[str, Any] | None = None, cache_path: Path | Non
     modified: list[dict[str, Any]] = []
     removed: list[dict[str, Any]] = []
 
-    while True:
-        request = TransactionsSyncRequest(access_token, cursor=cursor) if cursor else TransactionsSyncRequest(access_token)
-        response = client.transactions_sync(request).to_dict()
-        added.extend(_serialize(response.get("added", [])))
-        modified.extend(_serialize(response.get("modified", [])))
-        removed.extend(_serialize(response.get("removed", [])))
-        cursor = response.get("next_cursor") or cursor
-        if not response.get("has_more"):
-            break
+    # Retry loop: if we get "cursor not associated with access_token",
+    # clear the cursor and start a fresh sync. This can happen after re-linking.
+    for attempt in range(2):
+        current_cursor = cursor
+        added.clear()
+        modified.clear()
+        removed.clear()
+        try:
+            while True:
+                request = TransactionsSyncRequest(access_token=access_token, cursor=current_cursor) if current_cursor else TransactionsSyncRequest(access_token=access_token)
+                response = client.transactions_sync(request).to_dict()
+                added.extend(_serialize(response.get("added", [])))
+                modified.extend(_serialize(response.get("modified", [])))
+                removed.extend(_serialize(response.get("removed", [])))
+                current_cursor = response.get("next_cursor") or current_cursor
+                if not response.get("has_more"):
+                    cursor = current_cursor
+                    break
+            break  # success
+        except ApiException as e:
+            body = getattr(e, "body", None) or str(e)
+            body_str = str(body).lower() if body else str(e).lower()
+            if "cursor not associated with access_token" in body_str and cursor is not None and attempt == 0:
+                print("[plaid] Stale cursor detected for current access_token. Clearing cursor and starting fresh sync...")
+                cursor = None
+                state["transactions_cursor"] = None
+                save_state(state)
+                continue
+            raise
+        except Exception as e:
+            # Some errors may come wrapped; check message
+            if "cursor not associated with access_token" in str(e).lower() and cursor is not None and attempt == 0:
+                print("[plaid] Stale cursor (generic). Clearing and retrying fresh...")
+                cursor = None
+                state["transactions_cursor"] = None
+                save_state(state)
+                continue
+            raise
 
     today = date.today()
     start_date = today - timedelta(days=365)
+
+    # Fallback to transactions_get if transactions_sync returned no data (common for some accounts after link)
+    if len(added) == 0:
+        try:
+            print("[plaid] transactions_sync returned no data, falling back to transactions_get for historical cash flow...")
+            get_request = TransactionsGetRequest(
+                access_token=access_token,
+                start_date=start_date,
+                end_date=today,
+                options=TransactionsGetRequestOptions(count=500)
+            )
+            get_response = client.transactions_get(get_request).to_dict()
+            added = _serialize(get_response.get("transactions", []))
+            # For fallback, we treat all as "added" for the cache
+        except Exception as e:
+            print("[plaid] Fallback transactions_get also failed:", str(e))
+
     investments_holdings = client.investments_holdings_get(InvestmentsHoldingsGetRequest(access_token)).to_dict()
     investments_transactions = client.investments_transactions_get(
         InvestmentsTransactionsGetRequest(

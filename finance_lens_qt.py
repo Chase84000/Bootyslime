@@ -9,7 +9,6 @@ import subprocess
 import webbrowser
 import time
 import ctypes
-import math
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime
@@ -24,6 +23,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QGraphicsDropShadowEffect,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -34,6 +34,8 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTreeWidget,
+    QTreeWidgetItem,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -111,7 +113,7 @@ def fmt_date(value: str | None) -> str:
         return value
 
 
-def compute_portfolio_value(snapshot: dict | None, wf_snapshot: dict | None) -> float:
+def compute_portfolio_value(snapshot: dict | None, wf_snapshot: dict | None, manual_assets: dict | None = None) -> float:
     total = 0.0
     if snapshot:
         equity_positions = snapshot.get("equity_positions", {})
@@ -146,6 +148,24 @@ def compute_portfolio_value(snapshot: dict | None, wf_snapshot: dict | None) -> 
         for h in holdings:
             value = float(h.get("institution_value") or h.get("market_value") or 0)
             total += value
+        # Include cash/balances from Wealthfront accounts (cash accounts or uninvested)
+        for acc in wf_snapshot.get("accounts", []):
+            bal = 0.0
+            balances = acc.get("balances") or acc
+            for k in ("current", "available", "cash", "balance"):
+                v = balances.get(k) if isinstance(balances, dict) else acc.get(k)
+                if v is not None:
+                    try:
+                        bval = float(v)
+                        if bval > 0:
+                            bal = bval
+                            break
+                    except (ValueError, TypeError):
+                        pass
+            if bal > 0:
+                total += bal
+    if manual_assets:
+        total += sum(float(v) for v in manual_assets.values() if v)
     return total
 
 
@@ -356,114 +376,14 @@ class BarChart(QWidget):
                 painter.drawText(int(right - 70), int(y + row_h / 2 + 3), fmt_money(value))
 
 
-class PieChart(QWidget):
-    """Simple donut pie for allocation, Robinhood style."""
-    def __init__(self, title: str = "Asset allocation", parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._title = title
-        self._data: dict[str, float] = {}  # label -> percent or value
-        self._total: float | None = None
-        self.setMinimumHeight(260)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
-    def set_data(self, data: dict[str, float], total: float | None = None) -> None:
-        self._data = data or {}
-        if total is not None:
-            self._total = total
-        self.update()
-
-    def set_title(self, title: str) -> None:
-        self._title = title
-        self.update()
-
-    def paintEvent(self, event) -> None:  # noqa: N802
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.fillRect(self.rect(), QColor(GREEN_CARD))
-
-        if not self._data:
-            painter.setPen(QColor(SUBTLE))
-            painter.setFont(QFont("Segoe UI", 12))
-            painter.drawText(self.rect().adjusted(0, 10, 0, 0), Qt.AlignCenter, "No data")
-            return
-
-        total = sum(self._data.values()) or 1.0
-        colors = [QColor(RH_GREEN), QColor(BLUE), QColor("#A855F7"), QColor("#F7931A"), QColor("#14B8A6"), QColor(GOLD)]
-        # Less top padding now that titles are outside (smooth, no rect behind text)
-        rect = self.rect().adjusted(10, 10, -10, -10)
-        size = min(rect.width(), rect.height()) - 30
-        cx = rect.left() + rect.width() / 2
-        cy = rect.top() + rect.height() / 2 + 2
-        pie_rect = QRectF(cx - size/2, cy - size/2, size, size)
-
-        # Draw slices
-        start = 90 * 16
-        i = 0
-        slice_info = []
-        for label, val in self._data.items():
-            ang = int(360 * 16 * (val / total))
-            color = colors[i % len(colors)]
-            painter.setBrush(QBrush(color))
-            painter.setPen(QColor(GREEN_LINE))
-            painter.drawPie(pie_rect, start, ang)
-            mid = start + ang / 2
-            # Compute label position for slice - push out a bit for better readability
-            rad = math.radians(mid / 16 - 90)
-            lx = cx + (size/2 * 0.82) * math.cos(rad)
-            ly = cy + (size/2 * 0.82) * math.sin(rad)
-            pct = (val / total) * 100
-            slice_info.append((label, pct, lx, ly, color))
-            start += ang
-            i += 1
-
-        # Center hole
-        hole = size * 0.55
-        painter.setBrush(QColor(GREEN_CARD))
-        painter.setPen(Qt.NoPen)
-        painter.drawEllipse(QRectF(cx - hole/2, cy - hole/2, hole, hole))
-
-        # Center total (use actual value if available, RH style)
-        painter.setPen(QColor(TEXT))
-        painter.setFont(QFont("Segoe UI", 14, QFont.Bold))
-        if self._total is not None and self._total > 0:
-            val_str = fmt_money(self._total)
-            # center the text
-            painter.drawText(int(cx - len(val_str)*3.5), int(cy + 4), val_str)
-        else:
-            painter.drawText(int(cx - 20), int(cy + 5), "Total")
-
-        # Draw labels on slices if big enough, else legend
-        painter.setFont(QFont("Segoe UI", 12, QFont.Bold))
-        legend_y = int(pie_rect.top() + 5)
-        legend_x = int(pie_rect.right() + 5)
-        for label, pct, lx, ly, color in slice_info:
-            if pct > 5:  # only label big slices on pie
-                painter.setPen(QColor(TEXT))
-                short = label if len(label) <= 11 else label[:8] + "…"
-                text = f"{short}\n{pct:.0f}%"
-                painter.drawText(int(lx - 28), int(ly - 6), text)
-            else:
-                # legend for small
-                painter.setBrush(QBrush(color))
-                painter.drawRect(legend_x, legend_y, 8, 8)
-                painter.setPen(QColor(TEXT))
-                painter.setFont(QFont("Segoe UI", 11, QFont.Bold))
-                short = label if len(label) <= 11 else label[:8] + "…"
-                painter.drawText(legend_x + 12, legend_y + 7, f"{short} {pct:.0f}%")
-                legend_y += 14
-
-        # Full legend on right if space
-        if legend_y > pie_rect.bottom():
-            pass  # already drew inline
-
-
 class LineChart(QWidget):
-    """Simple line chart for net worth history."""
-    def __init__(self, title: str = "Net Worth History", parent: QWidget | None = None) -> None:
+    """Robinhood-banking inspired net worth line chart: clean green line + subtle area fill,
+    nice grid, prominent last point, better labels."""
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._title = title
-        self._points: list[tuple[str, float]] = []  # (date_label, value)
-        self.setMinimumHeight(180)
+        self._points: list[tuple[str, float]] = []
+        self.setMinimumHeight(200)
+        self.setMaximumHeight(300)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
     def set_data(self, points: list[tuple[str, float]]) -> None:
@@ -474,14 +394,11 @@ class LineChart(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.fillRect(self.rect(), QColor(GREEN_BG))
-        painter.setPen(QColor(GOLD_SOFT))
-        painter.setFont(QFont("Segoe UI", 15, QFont.DemiBold))
-        painter.drawText(16, 18, self._title)
 
-        if len(self._points) < 2:
+        if len(self._points) < 1:
             painter.setPen(QColor(SUBTLE))
-            painter.setFont(QFont("Segoe UI", 12))
-            painter.drawText(self.rect().adjusted(0, 25, 0, 0), Qt.AlignCenter, "No history data yet")
+            painter.setFont(QFont("Segoe UI", 14))
+            painter.drawText(self.rect(), Qt.AlignCenter, "No history data yet — load data or import CSVs with balances")
             return
 
         values = [v for _, v in self._points]
@@ -491,86 +408,85 @@ class LineChart(QWidget):
             max_v += 1
             min_v -= 1
 
-        margin = 30
-        chart_w = self.width() - 2 * margin
-        chart_h = self.height() - 55
-        left = margin
-        top = 25
+        margin_left = 60
+        margin_right = 15
+        margin_top = 10
+        margin_bottom = 28
+        chart_w = self.width() - margin_left - margin_right
+        chart_h = self.height() - margin_top - margin_bottom
+        left = margin_left
+        top = margin_top
 
         def y(v):
             return top + chart_h - (v - min_v) / (max_v - min_v) * chart_h
 
         n = len(self._points)
-        step = chart_w / (n - 1) if n > 1 else chart_w
+        step = chart_w / max(n - 1, 1)
 
-        # zero line if crosses
-        if min_v < 0 < max_v:
-            zero_y = y(0)
-            painter.setPen(QPen(QColor(GREEN_LINE), 1))
-            painter.drawLine(left, int(zero_y), left + int(chart_w), int(zero_y))
-
-        # line
-        painter.setPen(QPen(QColor(RH_GREEN), 2.5))
-        path = QPainterPath()
-        for i, (lbl, v) in enumerate(self._points):
+        # Subtle area fill under the line (Robinhood green, low opacity)
+        fill_path = QPainterPath()
+        for i, (_, v) in enumerate(self._points):
             x = left + i * step
             yy = y(v)
             if i == 0:
-                path.moveTo(x, yy)
+                fill_path.moveTo(x, yy)
             else:
-                path.lineTo(x, yy)
-        painter.drawPath(path)
+                fill_path.lineTo(x, yy)
+        fill_path.lineTo(left + (n-1)*step, top + chart_h)
+        fill_path.lineTo(left, top + chart_h)
+        fill_path.closeSubpath()
+        fill_color = QColor(RH_GREEN)
+        fill_color.setAlpha(28)
+        painter.fillPath(fill_path, QBrush(fill_color))
 
-        # points
-        painter.setBrush(QColor(RH_GREEN))
-        painter.setPen(QPen(QColor(TEXT), 1))
-        for i, (lbl, v) in enumerate(self._points):
+        # Main line - thick bright green like Robinhood
+        painter.setPen(QPen(QColor(RH_GREEN), 4))
+        line_path = QPainterPath()
+        for i, (_, v) in enumerate(self._points):
             x = left + i * step
             yy = y(v)
-            painter.drawEllipse(int(x-4), int(yy-4), 8, 8)
+            if i == 0:
+                line_path.moveTo(x, yy)
+            else:
+                line_path.lineTo(x, yy)
+        painter.drawPath(line_path)
 
-        # x labels (dates)
-        painter.setPen(QColor(MUTED))
-        painter.setFont(QFont("Segoe UI", 11))
-        for i, (lbl, v) in enumerate(self._points):
+        # Small dots on points (subtle)
+        painter.setBrush(QColor(RH_GREEN))
+        painter.setPen(Qt.NoPen)
+        for i, (_, v) in enumerate(self._points):
             x = left + i * step
-            painter.drawText(int(x - 25), self.height() - 8, lbl[-5:] if len(lbl) > 5 else lbl)
+            yy = y(v)
+            painter.drawEllipse(int(x - 3), int(yy - 3), 6, 6)
 
-        # y min/max labels
+        # Last point highlighted with ring (RH style)
+        last_x = left + (n-1) * step
+        last_y = y(values[-1])
+        painter.setPen(QPen(QColor(RH_GREEN), 3))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawEllipse(int(last_x - 6), int(last_y - 6), 12, 12)
+
+        # Value label at end of line (like RH hover value)
         painter.setPen(QColor(TEXT))
-        painter.setFont(QFont("Segoe UI", 11))
-        painter.drawText(2, int(top + 10), fmt_money(min_v))
-        painter.drawText(2, int(top + chart_h), fmt_money(max_v))
+        painter.setFont(QFont("Segoe UI", 11, QFont.Bold))
+        val_str = fmt_money(values[-1])
+        painter.drawText(int(last_x + 8), int(last_y - 5), val_str)
 
+        # Minimal y labels (left side, RH clean style - only min/max)
+        painter.setPen(QColor(MUTED))
+        painter.setFont(QFont("Segoe UI", 9))
+        painter.drawText(4, int(top + 8), fmt_money(max_v))
+        painter.drawText(4, int(top + chart_h - 2), fmt_money(min_v))
 
-class Card(QFrame):
-    """Polished metric card with Apple-like hierarchy and spacing."""
-    def __init__(self, title: str, subtitle: str = "", value: str = "") -> None:
-        super().__init__()
-        self.setObjectName("Card")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 18, 20, 18)
-        layout.setSpacing(3)
-
-        self.title = QLabel(title)
-        self.title.setObjectName("CardTitle")
-        self.title.setContentsMargins(0, 0, 0, 2)
-
-        self.value = QLabel(value)
-        self.value.setObjectName("CardValue")
-
-        self.subtitle = QLabel(subtitle)
-        self.subtitle.setObjectName("CardSubtitle")
-
-        layout.addWidget(self.title)
-        layout.addWidget(self.value)
-        layout.addWidget(self.subtitle)
-
-    def set_value(self, value: str) -> None:
-        self.value.setText(value)
-
-    def set_subtitle(self, text: str) -> None:
-        self.subtitle.setText(text)
+        # X labels - spaced for this month (RH minimal dates)
+        painter.setPen(QColor(SUBTLE))
+        painter.setFont(QFont("Segoe UI", 9))
+        label_step = max(1, (n - 1) // 5 + 1)
+        for i in range(0, n, label_step):
+            x = left + i * step
+            lbl = self._points[i][0]
+            short = lbl  # already MM/DD
+            painter.drawText(int(x - 12), self.height() - 6, short)
 
 
 class FinanceLensApp(QMainWindow):
@@ -619,25 +535,16 @@ class FinanceLensApp(QMainWindow):
                 pass
 
         self.settings = load_settings()
+        self.load_manual_assets()
         self.transactions: list[Transaction] = []
         self.filtered: list[Transaction] = []
         self.net_worth_history: list[tuple[str, float]] = []
         self.networth_chart = None
         self.snapshot: dict | None = None
         self.wealthfront_snapshot: dict | None = None
+        self.robinhood_plaid_snapshot: dict | None = None
 
-        self.month_var = ""
-        self.search_var = ""
         self.top_count = 8
-
-        self.portfolio_value = None
-        self.portfolio_change = None
-        self.net_worth_card = None
-        self.positions_card = None
-        self.income_card = None
-        self.expense_card = None
-        self.recent_list = None
-        self.allocation_chart = None
 
         self._build_ui()
         self._apply_style()
@@ -662,7 +569,7 @@ class FinanceLensApp(QMainWindow):
                 background: transparent;
                 border-radius: 0px;
             }}
-            #BrandBox, #HoldingsTop, #SettingsCard, #ActivityCard {{
+            #BrandBox, #HoldingsTop, #SettingsCard {{
                 background: {GREEN_PANEL};
                 border-radius: 28px;
             }}
@@ -767,6 +674,21 @@ class FinanceLensApp(QMainWindow):
                 font-weight: 600;
                 font-size: 14px;
                 letter-spacing: 0.5px;
+            }}
+            /* Bigger text + styles for Activity tree (monthly cash flow) */
+            QTreeWidget {{
+                background: {GREEN_PANEL};
+                border: 0px;
+                outline: 0;
+                font-size: 14px;
+            }}
+            QTreeWidget::item {{
+                padding: 10px 12px;
+                border: 0px;
+            }}
+            QTreeWidget::item:selected {{
+                background: {GREEN_CARD_2};
+                color: {TEXT};
             }}
 
             /* Modern rounded scrollbars (replaces old XP-style) */
@@ -898,9 +820,6 @@ class FinanceLensApp(QMainWindow):
             self.nav_buttons[key] = btn
 
         side_layout.addStretch(1)
-        self.sidebar_snapshot = Card("Snapshot", "Transactions loaded", "—")
-        self._apply_shadow(self.sidebar_snapshot, radius=20, blur=16, y=2)
-        side_layout.addWidget(self.sidebar_snapshot)
         self.sidebar_bridge = QLabel("No Robinhood cache loaded")
         self.sidebar_bridge.setWordWrap(True)
         self.sidebar_bridge.setStyleSheet(f"color: {MUTED};")
@@ -986,8 +905,8 @@ class FinanceLensApp(QMainWindow):
         self._apply_shadow(self.sidebar)
 
         # Hidden path widgets for compatibility with load methods (config lives in Settings)
-        self.cache_path = QLineEdit(str(DEFAULT_ROBINHOOD_CACHE))
-        self.wealthfront_cache_path = QLineEdit(str(DEFAULT_WEALTHFRONT_CACHE))
+        self.cache_path = QLineEdit(str(self.settings.get("last_cache", str(DEFAULT_ROBINHOOD_CACHE))))
+        self.wealthfront_cache_path = QLineEdit(str(self.settings.get("wealthfront_cache", str(DEFAULT_WEALTHFRONT_CACHE))))
 
         outer.addWidget(self.sidebar)
         outer.addWidget(self.main, 1)
@@ -995,35 +914,31 @@ class FinanceLensApp(QMainWindow):
     def _page_frame(self) -> QWidget:
         return QWidget()
 
-    def _count_positions(self) -> int:
-        count = 0
-        if self.snapshot:
-            for v in self.snapshot.get("equity_positions", {}).values():
-                count += len(v)
-            for v in self.snapshot.get("option_positions", {}).values():
-                count += len(v)
-        if self.wealthfront_snapshot:
-            count += len(self.wealthfront_snapshot.get("holdings", []))
-        return count
-
     def _compute_net_worth_history(self) -> list[tuple[str, float]]:
-        """Compute net worth over time from transactions (prefers 'balance' column if present)."""
+        """Compute net worth over time from transactions (prefers 'balance' column if present).
+        Supports multiple accounts (e.g. Pension, TDA, Checking) by summing latest balance per account per date.
+        """
         if not self.transactions:
             return []
-        txs = sorted(self.transactions, key=lambda t: t.date)
+        # Only this month for cleaner chart (user request) - start from June 1
+        from datetime import datetime as dtmod
+        now = dtmod.now()
+        txs = [t for t in sorted(self.transactions, key=lambda t: t.date)
+               if t.date.year == now.year and t.date.month == now.month]
         has_balance = any(getattr(tx, 'balance', None) is not None for tx in txs)
         history: list[tuple[str, float]] = []
         if has_balance:
-            # Use latest balance per date
-            by_date: dict = {}
+            from collections import defaultdict
+            by_date_accounts = defaultdict(dict)
             for tx in txs:
                 bal = getattr(tx, 'balance', None)
                 if bal is not None:
-                    by_date[tx.date] = bal
-            for d in sorted(by_date.keys()):
-                history.append((d.strftime('%m/%d'), by_date[d]))
+                    acc = getattr(tx, 'account', None) or "Unknown"
+                    by_date_accounts[tx.date][acc] = bal
+            for d in sorted(by_date_accounts.keys()):
+                total = sum(by_date_accounts[d].values())
+                history.append((d.strftime('%m/%d'), total))
         else:
-            # Running cumulative
             running = 0.0
             by_date: dict = {}
             for tx in txs:
@@ -1031,16 +946,27 @@ class FinanceLensApp(QMainWindow):
                 by_date[tx.date] = running
             for d in sorted(by_date.keys()):
                 history.append((d.strftime('%m/%d'), by_date[d]))
-        # Append current investment value as latest point (for full net worth view)
-        current_inv = compute_portfolio_value(self.snapshot, self.wealthfront_snapshot)
-        if history and current_inv > 0:
-            last_date = txs[-1].date
-            # use today's date or last + current inv (simple: add to last or separate)
-            # for demo, append with current date label if different
-            from datetime import datetime as dtmod
+
+        # Ensure the chart always starts from the 1st of this month
+        start_label = f"{now.month:02d}/01"
+        if not history:
+            # No tx this month: show flat from 1st to today with current value
+            current_inv = compute_portfolio_value(self.snapshot, self.wealthfront_snapshot, getattr(self, 'manual_assets', None))
+            if current_inv > 0:
+                history.append((start_label, current_inv))
+                today_label = dtmod.now().strftime('%m/%d')
+                if today_label != start_label:
+                    history.append((today_label, current_inv))
+        else:
+            if history[0][0] != start_label:
+                history.insert(0, (start_label, history[0][1]))
+            # Append today's point with current portfolio (if new day)
+            current_inv = compute_portfolio_value(self.snapshot, self.wealthfront_snapshot, getattr(self, 'manual_assets', None))
             today_label = dtmod.now().strftime('%m/%d')
-            last_val = history[-1][1]
-            history.append((today_label, last_val + current_inv))
+            if current_inv > 0:
+                last_val = history[-1][1]
+                if history[-1][0] != today_label:
+                    history.append((today_label, last_val + current_inv))
         return history
 
     def _apply_shadow(self, widget: QWidget, radius: int = 28, blur: int = 26, x: int = 0, y: int = 4) -> None:
@@ -1076,8 +1002,7 @@ class FinanceLensApp(QMainWindow):
         pies_title.setStyleSheet(f"color: {TEXT}; font-size: 15px; font-weight: 600;")
         main_lay.addWidget(pies_title)
 
-        # Cards for pies with rectangle highlight behind the titles (Robinhood-inspired clean cards)
-        # Each pie gets its own rounded card container so the title text has a nice highlighted rect behind it
+        # Allocation graphs in cards with highlighted titles (Robinhood-inspired)
         pies_row1 = QHBoxLayout()
         pies_row1.setSpacing(12)
 
@@ -1093,7 +1018,7 @@ class FinanceLensApp(QMainWindow):
         main_lay.addLayout(pies_row1)
 
         self.holdings_graph = BarChart("Market value by symbol", show_title=False)
-        card_hold, self.holdings_title = self._make_titled_graph_card("Market value by symbol", self.holdings_graph, 300)
+        card_hold, self.holdings_graph_title = self._make_titled_graph_card("Market value by symbol", self.holdings_graph, 300)
         main_lay.addWidget(card_hold)
 
         # Top categories in card (using helper for consistency)
@@ -1109,27 +1034,42 @@ class FinanceLensApp(QMainWindow):
         return page
 
     def _build_networth_page(self) -> QWidget:
-        """Separate tab for net worth history as requested."""
+        """Net Worth page styled to mirror Robinhood Banking: clean big number at top, delta, large prominent chart with green line/area, minimal text. Chart limited to this month."""
         page = QWidget()
+        page.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         lay = QVBoxLayout(page)
-        lay.setContentsMargins(12, 8, 12, 8)
+        lay.setContentsMargins(20, 8, 20, 8)
         lay.setSpacing(8)
 
-        title = QLabel("Net Worth History")
-        title.setStyleSheet(f"color: {TEXT}; font-size: 18px; font-weight: 700;")
-        lay.addWidget(title)
+        # Compact header at top
+        header_widget = QWidget()
+        hlay = QVBoxLayout(header_widget)
+        hlay.setContentsMargins(0, 0, 0, 0)
+        hlay.setSpacing(2)
 
-        sub = QLabel("Based on transaction balances + current investment values")
-        sub.setStyleSheet(f"color: {MUTED}; font-size: 13px;")
-        lay.addWidget(sub)
+        self.nw_label = QLabel("Net worth")
+        self.nw_label.setStyleSheet(f"color: {MUTED}; font-size: 13px; font-weight: 500;")
+        hlay.addWidget(self.nw_label)
 
-        self.networth_chart = LineChart("Net Worth Over Time")
-        self.networth_chart.setMinimumHeight(400)
-        lay.addWidget(self.networth_chart, 1)
+        self.nw_amount = QLabel("$0.00")
+        self.nw_amount.setStyleSheet(f"color: {TEXT}; font-size: 52px; font-weight: 700; letter-spacing: -1.5px;")
+        hlay.addWidget(self.nw_amount)
 
-        stats = QLabel("Use Dashboard for allocation & positions. History updates when you load new data.")
-        stats.setStyleSheet(f"color: {SUBTLE}; font-size: 12px;")
-        lay.addWidget(stats)
+        self.nw_change = QLabel("+$0.00 (+0.00%)")
+        self.nw_change.setStyleSheet(f"color: {RH_GREEN}; font-size: 16px; font-weight: 600;")
+        hlay.addWidget(self.nw_change)
+
+        self.nw_range = QLabel("June 2026")
+        self.nw_range.setStyleSheet(f"color: {SUBTLE}; font-size: 12px;")
+        hlay.addWidget(self.nw_range)
+
+        header_widget.setMaximumHeight(120)
+        lay.addWidget(header_widget)
+
+        # Prominent chart (fixed large height like RH to dominate the view nicely)
+        self.networth_chart = LineChart()
+        self.networth_chart.setFixedHeight(500)
+        lay.addWidget(self.networth_chart)
 
         return page
 
@@ -1213,91 +1153,230 @@ class FinanceLensApp(QMainWindow):
         v.addWidget(graph_widget, 1)
         return card, title
 
-    def _divider(self) -> QFrame:
-        d = QFrame()
-        d.setFrameShape(QFrame.HLine)
-        d.setStyleSheet(f"color: {GREEN_LINE};")
-        return d
-
     def _build_activity_page(self) -> QWidget:
-        # Simplified like RH activity feed - useful columns only
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
-
-        # Minimal filter
-        filt = QFrame()
-        filt.setObjectName("ActivityCard")
-        flay = QHBoxLayout(filt)
-        flay.setContentsMargins(18, 12, 18, 12)
-        flay.setSpacing(10)
-        flay.addWidget(QLabel("Search"))
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("description or account...")
-        self.search_input.setClearButtonEnabled(True)
-        self.search_input.textChanged.connect(self.apply_filters)
-        flay.addWidget(self.search_input, 1)
-        flay.addWidget(QLabel("Month"))
-        self.month_combo = QComboBox()
-        self.month_combo.addItem("All")
-        self.month_combo.currentTextChanged.connect(lambda _: self.apply_filters())
-        flay.addWidget(self.month_combo)
-        self._apply_shadow(filt, radius=20, blur=14)
-        layout.addWidget(filt)
-
-        self.tx_table = QTableWidget(0, 4)
-        self.tx_table.setHorizontalHeaderLabels(["Date", "Description", "Amount", "Account"])
-        self.tx_table.verticalHeader().setVisible(False)
-        self.tx_table.setShowGrid(False)
-        self.tx_table.setAlternatingRowColors(True)
-        self.tx_table.horizontalHeader().setStretchLastSection(True)
-        layout.addWidget(self.tx_table, 1)
-        return page
-
-    def _build_holdings_page(self) -> QWidget:
-        # Robinhood/Wealthfront style: Clean portfolio view - only useful position info
+        """Ground-up recreation: Monthly inflows and outflows for Wealthfront only.
+        Pulls from Plaid cash_transactions (account_label "Wealthfront") + any matching CSV txns.
+        """
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(16)
 
-        # Header with total
+        # Header
+        header = QFrame()
+        header.setObjectName("Card")
+        hlay = QVBoxLayout(header)
+        hlay.setContentsMargins(20, 16, 20, 16)
+        hlay.setSpacing(4)
+        title = QLabel("Cash Flow")
+        title.setStyleSheet(f"color: {TEXT}; font-size: 20px; font-weight: 700;")
+        sub = QLabel("Monthly inflows and outflows — Wealthfront (Plaid)")
+        sub.setStyleSheet(f"color: {MUTED}; font-size: 13px;")
+        hlay.addWidget(title)
+        hlay.addWidget(sub)
+        self._apply_shadow(header, radius=20, blur=14)
+        layout.addWidget(header)
+
+        # One clean KPI card (single rectangle) for the three titles/metrics
+        kpi_card = QFrame()
+        kpi_card.setObjectName("Card")
+        kpi_layout = QHBoxLayout(kpi_card)
+        kpi_layout.setContentsMargins(20, 10, 20, 10)
+        kpi_layout.setSpacing(32)
+
+        def _kpi_block(label_text, sub_text):
+            block = QFrame()
+            bl = QVBoxLayout(block)
+            bl.setContentsMargins(0, 0, 0, 0)
+            bl.setSpacing(1)
+            lab = QLabel(label_text)
+            lab.setStyleSheet(f"color: {SUBTLE}; font-size: 12px; letter-spacing: 0.5px;")
+            val = QLabel("$0.00")
+            val.setStyleSheet(f"color: {TEXT}; font-size: 22px; font-weight: 700;")
+            sub = QLabel(sub_text)
+            sub.setStyleSheet(f"color: {MUTED}; font-size: 11px;")
+            bl.addWidget(lab)
+            bl.addWidget(val)
+            bl.addWidget(sub)
+            block._val_label = val
+            return block
+
+        self.wf_in_kpi = _kpi_block("Wealthfront In", "All time inflows")
+        self.wf_out_kpi = _kpi_block("Wealthfront Out", "All time outflows")
+        self.wf_net_kpi = _kpi_block("Wealthfront Net", "All time net")
+        kpi_layout.addWidget(self.wf_in_kpi)
+        kpi_layout.addWidget(self.wf_out_kpi)
+        kpi_layout.addWidget(self.wf_net_kpi)
+        self._apply_shadow(kpi_card, radius=18, blur=12, y=2)
+        layout.addWidget(kpi_card)
+
+        # Monthly breakdown table
+        table_card = QFrame()
+        table_card.setObjectName("Card")
+        tlay = QVBoxLayout(table_card)
+        tlay.setContentsMargins(16, 12, 16, 16)
+        tlay.setSpacing(8)
+
+        tbl_title = QLabel("Monthly Breakdown")
+        tbl_title.setStyleSheet(f"color: {GOLD_SOFT}; font-size: 13px; font-weight: 600;")
+        tlay.addWidget(tbl_title)
+
+        self.flow_tree = QTreeWidget()
+        self.flow_tree.setHeaderLabels(["Month", "Description", "Inflow", "Outflow"])
+        self.flow_tree.setAlternatingRowColors(False)
+        self.flow_tree.setSortingEnabled(False)
+        self.flow_tree.setSelectionMode(QTreeWidget.SelectionMode.SingleSelection)
+        self.flow_tree.setMinimumHeight(300)
+        self.flow_tree.header().setStretchLastSection(True)
+
+        # Reduced text size for Activity (was too big)
+        tree_font = self.flow_tree.font()
+        tree_font.setPointSize(14)
+        self.flow_tree.setFont(tree_font)
+        header = self.flow_tree.header()
+        hfont = header.font()
+        hfont.setPointSize(13)
+        header.setFont(hfont)
+        self.flow_tree.setColumnWidth(0, 170)  # more room for Month column
+
+        tlay.addWidget(self.flow_tree, 1)
+        self._apply_shadow(table_card, radius=18, blur=12)
+        layout.addWidget(table_card, 1)
+
+        # === Polished action bar (like the Holdings page) ===
+        actions = QHBoxLayout()
+        actions.setSpacing(10)
+
+        btn_sync = QPushButton("Sync Wealthfront")
+        btn_sync.setObjectName("PrimaryButton")
+        btn_sync.clicked.connect(self.launch_wealthfront_bridge)
+
+        btn_reload = QPushButton("Reload")
+        btn_reload.clicked.connect(self._reload_for_activity)
+
+        actions.addWidget(btn_sync)
+        actions.addWidget(btn_reload)
+        actions.addStretch(1)
+        note = QLabel("Data comes from Wealthfront Plaid caches (cash_transactions) and matching imported CSVs.")
+        note.setStyleSheet(f"color: {SUBTLE}; font-size: 13px;")
+        actions.addWidget(note)
+        layout.addLayout(actions)
+
+        return page
+
+    def _build_holdings_page(self) -> QWidget:
+        """Premium, clean holdings view (Robinhood / Wealthfront / Apple quality).
+        Self-contained page (no global hero), rich header, properly sized table, clear actions.
+        """
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(18)
+
+        # === Rich header ===
         header = QFrame()
         header.setObjectName("HoldingsTop")
         hlay = QVBoxLayout(header)
-        hlay.setContentsMargins(22, 16, 22, 16)
-        self.holdings_title = QLabel("Portfolio Holdings")
-        self.holdings_title.setStyleSheet(f"color: {TEXT}; font-size: 18px; font-weight: 700;")
+        hlay.setContentsMargins(24, 18, 24, 18)
+        hlay.setSpacing(6)
+
+        title_row = QHBoxLayout()
+        self.holdings_title = QLabel("Holdings")
+        self.holdings_title.setStyleSheet(f"color: {TEXT}; font-size: 22px; font-weight: 700; letter-spacing: -0.3px;")
+        title_row.addWidget(self.holdings_title)
+        title_row.addStretch(1)
+        hlay.addLayout(title_row)
+
+        # Center the main total (market value) and sub
+        total_h = QHBoxLayout()
+        total_h.addStretch(1)
         self.holdings_total = QLabel("$0.00")
-        self.holdings_total.setStyleSheet(f"color: {GOLD_SOFT}; font-size: 32px; font-weight: 700;")
-        self.holdings_sub = QLabel("Consolidated from Robinhood + Wealthfront caches • sorted by value")
-        self.holdings_sub.setStyleSheet(f"color: {MUTED}; font-size: 12px;")
-        hlay.addWidget(self.holdings_title)
-        hlay.addWidget(self.holdings_total)
-        hlay.addWidget(self.holdings_sub)
-        self._apply_shadow(header, radius=24, blur=18)
+        self.holdings_total.setStyleSheet(f"color: {GOLD_SOFT}; font-size: 36px; font-weight: 700; letter-spacing: -1px;")
+        total_h.addWidget(self.holdings_total)
+        total_h.addStretch(1)
+        hlay.addLayout(total_h)
+
+        sub_h = QHBoxLayout()
+        sub_h.addStretch(1)
+        self.holdings_sub = QLabel("Loading holdings…")
+        self.holdings_sub.setStyleSheet(f"color: {MUTED}; font-size: 14px;")
+        sub_h.addWidget(self.holdings_sub)
+        sub_h.addStretch(1)
+        hlay.addLayout(sub_h)
+
+        # Source breakdown row (populated in render)
+        self.holdings_breakdown = QHBoxLayout()
+        self.holdings_breakdown.setSpacing(16)
+        hlay.addLayout(self.holdings_breakdown)
+
+        self._apply_shadow(header, radius=22, blur=16)
         layout.addWidget(header)
 
-        # Useful list/table only - focused on symbol, value, P/L like RH/WF
-        self.holdings_table = QTableWidget(0, 6)
-        self.holdings_table.setHorizontalHeaderLabels(["Source", "Symbol", "Qty", "Price", "Value", "Unrealized P/L"])
+        # === Holdings table in its own card ===
+        table_card = QFrame()
+        table_card.setObjectName("Card")
+        tlay = QVBoxLayout(table_card)
+        tlay.setContentsMargins(18, 14, 18, 16)
+        tlay.setSpacing(10)
+
+        tbl_label = QLabel("Holdings (sorted by market value)")
+        tbl_label.setStyleSheet(f"color: {GOLD_SOFT}; font-size: 15px; font-weight: 600;")
+        tbl_label.setAlignment(Qt.AlignCenter)
+        tlay.addWidget(tbl_label)
+
+        self.holdings_table = QTableWidget(0, 7)
+        self.holdings_table.setHorizontalHeaderLabels([
+            "Source", "Symbol", "Shares", "Price", "Market Value", "Unrealized P/L", "% of Total"
+        ])
+        # Center the "Market Value" header (col 4) to match centered values
+        if self.holdings_table.horizontalHeaderItem(4):
+            self.holdings_table.horizontalHeaderItem(4).setTextAlignment(Qt.AlignCenter)
         self.holdings_table.verticalHeader().setVisible(False)
         self.holdings_table.setShowGrid(False)
-        self.holdings_table.setAlternatingRowColors(True)
-        self.holdings_table.horizontalHeader().setStretchLastSection(True)
-        layout.addWidget(self.holdings_table, 1)
+        self.holdings_table.setAlternatingRowColors(False)
+        self.holdings_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        hdr = self.holdings_table.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
+        hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.Interactive)
+        hdr.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setHighlightSections(False)
 
-        # Minimal actions
+        # Bigger fonts for holdings table
+        tbl_font = self.holdings_table.font()
+        tbl_font.setPointSize(16)
+        self.holdings_table.setFont(tbl_font)
+        h_font = self.holdings_table.horizontalHeader().font()
+        h_font.setPointSize(15)
+        self.holdings_table.horizontalHeader().setFont(h_font)
+
+        tlay.addWidget(self.holdings_table, 1)
+
+        self._apply_shadow(table_card, radius=18, blur=14)
+        layout.addWidget(table_card, 1)
+
+        # === Polished action bar ===
         actions = QHBoxLayout()
-        reload_all = QPushButton("Reload All")
-        reload_all.clicked.connect(self.reload_all_holdings)
-        connect_btn = QPushButton("Connect / Sync Wealthfront")
-        connect_btn.setObjectName("PrimaryButton")
-        connect_btn.clicked.connect(self.launch_wealthfront_bridge)
-        actions.addWidget(reload_all)
+        actions.setSpacing(10)
+
+        btn_rh = QPushButton("Reload Robinhood")
+        btn_rh.clicked.connect(self.reload_robinhood_holdings)
+
+        btn_wf = QPushButton("Sync Wealthfront")
+        btn_wf.setObjectName("PrimaryButton")
+        btn_wf.clicked.connect(self.launch_wealthfront_bridge)
+
+        btn_all = QPushButton("Reload All")
+        btn_all.clicked.connect(self.reload_all_holdings)
+
+        actions.addWidget(btn_rh)
+        actions.addWidget(btn_wf)
         actions.addStretch(1)
-        actions.addWidget(connect_btn)
+        actions.addWidget(btn_all)
+
         layout.addLayout(actions)
 
         return page
@@ -1350,6 +1429,85 @@ class FinanceLensApp(QMainWindow):
         btn_sync = QPushButton("Sync Wealthfront now")
         btn_sync.clicked.connect(self.sync_wealthfront_now)
         lay.addWidget(btn_sync)
+
+        btn_reset = QPushButton("Reset Plaid link (fix 'cursor not associated' errors)")
+        btn_reset.clicked.connect(self.reset_plaid_link)
+        lay.addWidget(btn_reset)
+
+        # === Robinhood Plaid Section ===
+        rh_plaid_title = QLabel("Plaid / Robinhood (Credit Card or Account)")
+        rh_plaid_title.setStyleSheet(f"color: {GOLD_SOFT}; font-size: 14px; font-weight: 700;")
+        lay.addWidget(rh_plaid_title)
+        rh_plaid_desc = QLabel("Link your Robinhood account/credit card via Plaid (optional). Use the bridge, set cache path, save, connect via Plaid Link, then Sync. (Robinhood data is not shown on the Activity tab.)")
+        rh_plaid_desc.setStyleSheet(f"color: {MUTED}; font-size: 12px;")
+        lay.addWidget(rh_plaid_desc)
+
+        self.robinhood_plaid_cache_path = QLineEdit(str(self.settings.get("robinhood_plaid_cache", str(ROOT / "robinhood-plaid-cache.json"))))
+        self.robinhood_plaid_cache_path.setPlaceholderText("Robinhood Plaid cache path")
+        lay.addWidget(self.robinhood_plaid_cache_path)
+
+        btn_save_rh_plaid = QPushButton("Save Robinhood Plaid settings")
+        btn_save_rh_plaid.setObjectName("PrimaryButton")
+        btn_save_rh_plaid.clicked.connect(self.save_robinhood_plaid_settings)
+        lay.addWidget(btn_save_rh_plaid)
+
+        btn_rh_bridge = QPushButton("Open Robinhood Plaid bridge")
+        btn_rh_bridge.clicked.connect(self.launch_robinhood_plaid_bridge)
+        lay.addWidget(btn_rh_bridge)
+
+        btn_rh_sync = QPushButton("Sync Robinhood Plaid now")
+        btn_rh_sync.clicked.connect(self.sync_robinhood_plaid_now)
+        lay.addWidget(btn_rh_sync)
+
+        # === Robinhood Cache ===
+        robin_title = QLabel("Robinhood Cache (holdings & orders)")
+        robin_title.setStyleSheet(f"color: {GOLD_SOFT}; font-size: 14px; font-weight: 700;")
+        lay.addWidget(robin_title)
+        self.robinhood_cache_path = QLineEdit(str(self.settings.get("last_cache", str(DEFAULT_ROBINHOOD_CACHE))))
+        self.robinhood_cache_path.setPlaceholderText("robinhood-cache.json")
+        lay.addWidget(self.robinhood_cache_path)
+        btn_save_robin_cache = QPushButton("Save Robinhood cache path")
+        btn_save_robin_cache.clicked.connect(self.save_robinhood_cache_path)
+        lay.addWidget(btn_save_robin_cache)
+        btn_reload_robin = QPushButton("Reload Robinhood cache")
+        btn_reload_robin.clicked.connect(self.reload_robinhood_cache)
+        lay.addWidget(btn_reload_robin)
+
+        # === Manual Assets Section ===
+        manual_title = QLabel("Manual Assets / Other Accounts")
+        manual_title.setStyleSheet(f"color: {GOLD_SOFT}; font-size: 14px; font-weight: 700;")
+        lay.addWidget(manual_title)
+        manual_desc = QLabel("Add pensions, TDAs, real estate, or any other assets not in Robinhood/Wealthfront.")
+        manual_desc.setStyleSheet(f"color: {MUTED}; font-size: 12px;")
+        lay.addWidget(manual_desc)
+
+        self.manual_assets_table = QTableWidget(0, 2)
+        self.manual_assets_table.setHorizontalHeaderLabels(["Account Name", "Current Value"])
+        self.manual_assets_table.setColumnWidth(0, 200)
+        self.manual_assets_table.setColumnWidth(1, 140)
+        header = self.manual_assets_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.manual_assets_table.verticalHeader().setVisible(False)
+        lay.addWidget(self.manual_assets_table)
+
+        manual_btn_layout = QHBoxLayout()
+        add_asset_btn = QPushButton("Add Asset")
+        add_asset_btn.clicked.connect(self.add_manual_asset)
+        remove_asset_btn = QPushButton("Remove Selected")
+        remove_asset_btn.clicked.connect(self.remove_manual_asset)
+        save_manual_btn = QPushButton("Save Manual Assets")
+        save_manual_btn.setObjectName("PrimaryButton")
+        save_manual_btn.clicked.connect(self.save_manual_assets)
+        manual_btn_layout.addWidget(add_asset_btn)
+        manual_btn_layout.addWidget(remove_asset_btn)
+        manual_btn_layout.addStretch(1)
+        manual_btn_layout.addWidget(save_manual_btn)
+        lay.addLayout(manual_btn_layout)
+
+        # Load existing manual assets into the table
+        self.load_manual_assets_into_table()
+
         btn1 = QPushButton("Open last CSV folder")
         btn1.clicked.connect(self.open_last_folder)
         lay.addWidget(btn1)
@@ -1377,9 +1535,10 @@ class FinanceLensApp(QMainWindow):
                     break
         self.load_snapshot(silent=True)
         self.load_wealthfront_snapshot(silent=True)
+        self.load_robinhood_plaid_snapshot(silent=True)
         self.net_worth_history = self._compute_net_worth_history()
-        # Only load sample if truly no real data from CSV or WF cache
-        if not self.transactions and not (self.wealthfront_snapshot and self.wealthfront_snapshot.get("cash_transactions", {}).get("added")):
+        # Only load sample if truly no real data from CSV or Wealthfront link (even if no txns yet)
+        if not self.transactions and not self.wealthfront_snapshot:
             self.load_sample()
         self.show_view("dashboard")
 
@@ -1426,7 +1585,7 @@ class FinanceLensApp(QMainWindow):
             "dashboard": ("Dashboard", "Allocation, cash & P/L overview"),
             "positions": ("Positions", "Detailed holdings from all accounts"),
             "networth": ("Net Worth", "History from transactions + current portfolio"),
-            "activity": ("Activity", "Transactions and cash flow"),
+            "activity": ("Activity", "Monthly inflows & outflows: Wealthfront"),
             "holdings": ("Holdings", "Consolidated portfolio view"),
             "settings": ("Settings", "Caches, Plaid and preferences"),
         }
@@ -1437,7 +1596,7 @@ class FinanceLensApp(QMainWindow):
         self.hero_subtitle.setStyleSheet(f"color: {MUTED}; font-size: 13px;")
 
         # Tab-specific hero: hide on detail pages to avoid heavy top bar on Positions/Net Worth etc.
-        self.hero.setVisible(key in ("dashboard", "activity", "holdings", "settings"))
+        self.hero.setVisible(key in ("dashboard", "settings"))
 
         if key == "dashboard":
             self.render_dashboard()
@@ -1447,6 +1606,8 @@ class FinanceLensApp(QMainWindow):
             self.render_holdings()
         elif key == "positions":
             self.render_positions()
+        elif key == "settings":
+            self.load_manual_assets_into_table()
         elif key == "networth":
             self.render_networth()
 
@@ -1500,6 +1661,8 @@ class FinanceLensApp(QMainWindow):
         name, _ = QFileDialog.getOpenFileName(self, "Select Wealthfront cache JSON", str(DEFAULT_WEALTHFRONT_CACHE.parent), "JSON Files (*.json);;All Files (*)")
         if name:
             self.wealthfront_cache_path.setText(name)
+            if hasattr(self, 'plaid_cache_path'):
+                self.plaid_cache_path.setText(name)
             self.load_wealthfront_snapshot()
 
     def open_last_folder(self) -> None:
@@ -1533,6 +1696,8 @@ class FinanceLensApp(QMainWindow):
         self.settings["plaid_env"] = self.plaid_env.currentText().strip().lower()
         self.settings["wealthfront_cache"] = str(cache_path)
         save_settings(self.settings)
+        if hasattr(self, 'wealthfront_cache_path'):
+            self.wealthfront_cache_path.setText(str(cache_path))
         try:
             from wealthfront_plaid_common import ensure_state_defaults, load_state, save_state
 
@@ -1548,15 +1713,69 @@ class FinanceLensApp(QMainWindow):
         if notify:
             QMessageBox.information(self, APP_TITLE, "Plaid settings saved.")
 
-    def _launch_wealthfront_script(self, script_name: str, open_browser: bool = False) -> None:
+    def load_manual_assets(self):
+        self.manual_assets = dict(self.settings.get("manual_assets", {}) or {})
+
+    def load_manual_assets_into_table(self):
+        if not hasattr(self, 'manual_assets_table') or self.manual_assets_table is None:
+            return
+        self.manual_assets_table.setRowCount(0)
+        for name, value in getattr(self, 'manual_assets', {}).items():
+            row = self.manual_assets_table.rowCount()
+            self.manual_assets_table.insertRow(row)
+            self.manual_assets_table.setItem(row, 0, QTableWidgetItem(str(name)))
+            val_item = QTableWidgetItem(f"{value:.2f}")
+            val_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            self.manual_assets_table.setItem(row, 1, val_item)
+
+    def save_manual_assets(self, notify: bool = True):
+        self.manual_assets = {}
+        for row in range(self.manual_assets_table.rowCount()):
+            name_item = self.manual_assets_table.item(row, 0)
+            value_item = self.manual_assets_table.item(row, 1)
+            if name_item:
+                name = name_item.text().strip()
+                try:
+                    value = float(value_item.text().strip()) if value_item else 0.0
+                except:
+                    value = 0.0
+                if name:
+                    self.manual_assets[name] = value
+        self.settings["manual_assets"] = self.manual_assets
+        save_settings(self.settings)
+        # Refresh views that use the data
+        self.net_worth_history = self._compute_net_worth_history()
+        self.render_dashboard()
+        self.render_positions()
+        self.render_holdings()
+        if notify:
+            QMessageBox.information(self, APP_TITLE, "Manual assets saved.")
+
+    def add_manual_asset(self):
+        row = self.manual_assets_table.rowCount()
+        self.manual_assets_table.insertRow(row)
+        self.manual_assets_table.setItem(row, 0, QTableWidgetItem("New Asset"))
+        val_item = QTableWidgetItem("0")
+        val_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.manual_assets_table.setItem(row, 1, val_item)
+
+    def remove_manual_asset(self):
+        rows = sorted({item.row() for item in self.manual_assets_table.selectedItems()}, reverse=True)
+        for row in rows:
+            self.manual_assets_table.removeRow(row)
+
+    def _launch_wealthfront_script(self, script_name: str, open_browser: bool = False, extra_args: list = None) -> None:
         script = ROOT / script_name
         if not script.exists():
             QMessageBox.warning(self, APP_TITLE, f"Missing script: {script.name}")
             return
+        cmd = [pythonw_executable(), str(script)]
+        if extra_args:
+            cmd.extend(extra_args)
         if open_browser and not is_port_open("127.0.0.1", WEALTHFRONT_BRIDGE_PORT):
             try:
                 subprocess.Popen(
-                    [pythonw_executable(), str(script)],
+                    cmd,
                     cwd=str(ROOT),
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
@@ -1566,7 +1785,7 @@ class FinanceLensApp(QMainWindow):
         elif not open_browser:
             try:
                 subprocess.Popen(
-                    [pythonw_executable(), str(script)],
+                    cmd,
                     cwd=str(ROOT),
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
@@ -1600,12 +1819,83 @@ class FinanceLensApp(QMainWindow):
             )
             if proc.returncode != 0:
                 detail = proc.stderr.strip() or proc.stdout.strip() or "Unknown sync failure."
+                if "cursor not associated with access_token" in detail.lower():
+                    detail = (detail + "\n\n"
+                              "This usually means a stale sync cursor from a previous link.\n"
+                              "Fix: Re-run the Wealthfront bridge and Connect again (or delete "
+                              "'transactions_cursor' from ~/.finance_lens_plaid.json).")
                 QMessageBox.critical(self, APP_TITLE, detail)
                 return
             self.load_wealthfront_snapshot()
+            self.refresh_transactions()
             QMessageBox.information(self, APP_TITLE, proc.stdout.strip() or "Wealthfront sync complete.")
         except Exception as exc:
             QMessageBox.critical(self, APP_TITLE, f"Could not sync Wealthfront: {exc}")
+
+    def reset_plaid_link(self) -> None:
+        try:
+            from wealthfront_plaid_common import reset_plaid_link as do_reset
+            do_reset()
+            QMessageBox.information(
+                self, APP_TITLE,
+                "Plaid link data cleared (access token + cursor).\n\n"
+                "Now re-open the bridge and click Connect to link again."
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, APP_TITLE, f"Could not reset: {exc}")
+
+    def save_robinhood_plaid_settings(self, notify: bool = True) -> None:
+        cache_path = Path(self.robinhood_plaid_cache_path.text()).expanduser()
+        self.settings["robinhood_plaid_cache"] = str(cache_path)
+        save_settings(self.settings)
+        if notify:
+            QMessageBox.information(self, APP_TITLE, "Robinhood Plaid settings saved.")
+
+    def launch_robinhood_plaid_bridge(self):
+        self.save_robinhood_plaid_settings(notify=False)
+        cache_path = Path(self.robinhood_plaid_cache_path.text()).expanduser()
+        self._launch_wealthfront_script("wealthfront_plaid_bridge.py", open_browser=True, extra_args=["--cache-path", str(cache_path)])
+
+    def sync_robinhood_plaid_now(self):
+        self.save_robinhood_plaid_settings(notify=False)
+        script = ROOT / "wealthfront_sync.py"
+        if not script.exists():
+            QMessageBox.warning(self, APP_TITLE, "Missing wealthfront_sync.py.")
+            return
+        try:
+            proc = subprocess.run(
+                [pythonw_executable(), str(script)],
+                cwd=str(ROOT),
+                capture_output=True,
+                text=True,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                check=False,
+            )
+            if proc.returncode != 0:
+                detail = proc.stderr.strip() or proc.stdout.strip() or "Unknown sync failure."
+                if "cursor not associated with access_token" in detail.lower():
+                    detail = (detail + "\n\n"
+                              "Stale Plaid cursor (common after re-linking).\n"
+                              "Solution: Use the Robinhood Plaid bridge to Connect/Link again.")
+                QMessageBox.critical(self, APP_TITLE, detail)
+                return
+            self.load_robinhood_plaid_snapshot()
+            QMessageBox.information(self, APP_TITLE, proc.stdout.strip() or "Robinhood Plaid sync complete.")
+        except Exception as exc:
+            QMessageBox.critical(self, APP_TITLE, f"Could not sync Robinhood Plaid: {exc}")
+
+    def save_robinhood_cache_path(self):
+        path = Path(self.robinhood_cache_path.text()).expanduser()
+        self.settings["last_cache"] = str(path)
+        save_settings(self.settings)
+        if hasattr(self, 'cache_path'):
+            self.cache_path.setText(str(path))
+        QMessageBox.information(self, APP_TITLE, "Robinhood cache path saved.")
+
+    def reload_robinhood_cache(self):
+        if hasattr(self, 'cache_path'):
+            self.cache_path.setText(self.robinhood_cache_path.text())
+        self.load_snapshot(silent=False)
 
     def _load_transactions(self, paths: list[Path]) -> None:
         loaded: list[Transaction] = []
@@ -1619,42 +1909,14 @@ class FinanceLensApp(QMainWindow):
         self.filtered = list(self.transactions)
         self.settings["last_imports"] = [str(p) for p in paths]
         save_settings(self.settings)
-        self._add_wealthfront_cash_transactions()
+        self._add_plaid_cash_transactions()
         self.net_worth_history = self._compute_net_worth_history()
-        self._sync_months()
         self.render_dashboard()
         self.refresh_transactions()
         self.render_holdings()
         self.render_positions()
 
-    def _sync_months(self) -> None:
-        months = sorted({month_key(tx.date) for tx in self.transactions})
-        self.month_combo.blockSignals(True)
-        self.month_combo.clear()
-        self.month_combo.addItem("All")
-        self.month_combo.addItems(months)
-        self.month_combo.blockSignals(False)
-        if self.month_var and self.month_var not in months:
-            self.month_var = ""
 
-    def apply_filters(self) -> None:
-        month_text = self.month_combo.currentText().strip()
-        self.month_var = "" if month_text == "All" else month_text
-        self.search_var = self.search_input.text().strip().lower()
-        txs = self.transactions
-        if self.month_var:
-            txs = [tx for tx in txs if month_key(tx.date) == self.month_var]
-        if self.search_var:
-            txs = [
-                tx
-                for tx in txs
-                if self.search_var in (tx.description or "").lower()
-                or self.search_var in (tx.category or "").lower()
-                or self.search_var in (tx.account or "").lower()
-            ]
-        self.filtered = txs
-        self.render_dashboard()
-        self.refresh_transactions()
 
     def _on_top_change(self, value: int) -> None:
         self.top_count = int(value)
@@ -1663,8 +1925,7 @@ class FinanceLensApp(QMainWindow):
 
     def render_dashboard(self) -> None:
         tx_data = summary_for(self.filtered if self.filtered is not None else self.transactions)
-        portfolio_val = compute_portfolio_value(self.snapshot, self.wealthfront_snapshot)
-        pos_count = self._count_positions()
+        portfolio_val = compute_portfolio_value(self.snapshot, self.wealthfront_snapshot, getattr(self, 'manual_assets', None))
 
         # KPIs
         self._set_metric(self.kpi_net, fmt_money(portfolio_val))
@@ -1700,10 +1961,11 @@ class FinanceLensApp(QMainWindow):
                 for k in ("cash", "buying_power"):
                     try:
                         cash_approx += float(acc.get(k, 0) or 0)
-                    except: pass
+                    except (ValueError, TypeError):
+                        pass
         self._set_metric(self.kpi_cash, fmt_money(cash_approx or tx_data.get("net", 0)))
 
-        # Prepare allocation (pure asset data only - removed cash flow pollution for cleaner view)
+        # Prepare allocation (all assets: equities, holdings, cash, manual)
         alloc = {}
         if self.snapshot:
             eq_v = 0.0
@@ -1712,19 +1974,52 @@ class FinanceLensApp(QMainWindow):
                     q = p.get("quote", {})
                     eq_v += float(p.get("quantity", 0)) * float(q.get("last_trade_price", 0) or 0)
             if eq_v: alloc["Equities (RH)"] = eq_v
+            # options
+            opt_v = 0.0
+            for poss in self.snapshot.get("option_positions", {}).values():
+                for p in poss:
+                    q = p.get("quote", {})
+                    mark = float(q.get("mark_price", 0) or 0)
+                    qty = float(p.get("quantity", 0) or 0)
+                    opt_v += qty * mark * 100
+            if opt_v: alloc["Options (RH)"] = opt_v
         if self.wealthfront_snapshot:
             wf_v = sum(float(h.get("institution_value") or h.get("market_value") or 0) for h in self.wealthfront_snapshot.get("holdings", []))
             if wf_v: alloc["Wealthfront"] = wf_v
         if cash_approx > 0:
             alloc["Cash"] = cash_approx
-        alloc_total = sum(alloc.values())
+
+        # Include Wealthfront cash (from accounts) in Cash so total matches portfolio
+        if self.wealthfront_snapshot:
+            for acc in self.wealthfront_snapshot.get("accounts", []):
+                bal = 0.0
+                balances = acc.get("balances") or acc
+                for k in ("current", "available", "cash", "balance"):
+                    v = balances.get(k) if isinstance(balances, dict) else acc.get(k)
+                    if v is not None:
+                        try:
+                            bval = float(v)
+                            if bval > 0:
+                                bal = bval
+                                break
+                        except (ValueError, TypeError):
+                            pass
+                if bal > 0:
+                    alloc["Cash"] = alloc.get("Cash", 0) + bal
+
+        # Manual assets from Settings
+        for name, val in getattr(self, 'manual_assets', {}).items():
+            if val > 0:
+                alloc[name] = val
+
+        alloc_total = portfolio_val  # ensure matches the Net Worth KPI / full assets
         if hasattr(self, 'alloc_title'):
             self.alloc_title.setText(f"Asset allocation  •  {fmt_money(alloc_total)}")
         alloc_rows = sorted(alloc.items(), key=lambda x: -x[1])
         if hasattr(self, 'alloc_graph'):
             self.alloc_graph.set_rows(alloc_rows)
 
-        # Value by account graph (pure data, no cash flow)
+        # Value by account graph (equities + cash + holdings + manual)
         acc_data = {}
         if self.snapshot:
             for acc in self.snapshot.get("accounts", []):
@@ -1733,12 +2028,48 @@ class FinanceLensApp(QMainWindow):
                 for p in self.snapshot.get("equity_positions", {}).get(aid, []):
                     q = p.get("quote", {})
                     acc_v += float(p.get("quantity", 0)) * float(q.get("last_trade_price", 0) or 0)
+                nick = acc.get("nickname") or acc.get("type", "RH")
                 if acc_v > 0:
-                    acc_data[acc.get("nickname") or acc.get("type", "RH")] = acc_v
+                    acc_data[nick] = acc_v
+                # include cash for the account
+                cash = 0.0
+                for k in ("cash", "buying_power", "cash_balance", "available_cash", "balance"):
+                    try:
+                        c = float(acc.get(k, 0) or 0)
+                        if c > 0:
+                            cash += c
+                            break
+                    except (ValueError, TypeError):
+                        pass
+                if cash > 0:
+                    acc_data[nick] = acc_data.get(nick, 0) + cash
         if self.wealthfront_snapshot:
-            wf_tot = sum(float(h.get("institution_value") or 0) for h in self.wealthfront_snapshot.get("holdings", []))
-            if wf_tot > 0:
-                acc_data["Wealthfront"] = wf_tot
+            wf_tot = sum(float(h.get("institution_value") or h.get("market_value") or 0) for h in self.wealthfront_snapshot.get("holdings", []))
+            wf_cash = 0.0
+            for acc in self.wealthfront_snapshot.get("accounts", []):
+                bal = 0.0
+                b = acc.get("balances") or acc
+                for k in ("current", "available", "cash", "balance"):
+                    v = b.get(k) if isinstance(b, dict) else acc.get(k)
+                    if v is not None:
+                        try:
+                            bval = float(v)
+                            if bval > 0:
+                                bal = bval
+                                break
+                        except (ValueError, TypeError):
+                            pass
+                if bal > 0:
+                    wf_cash += bal
+            total_wf = wf_tot + wf_cash
+            if total_wf > 0:
+                acc_data["Wealthfront"] = total_wf
+
+        # Manual assets from Settings
+        for name, val in getattr(self, 'manual_assets', {}).items():
+            if val > 0:
+                acc_data[name] = val
+
         acc_total = sum(acc_data.values())
         if hasattr(self, 'account_title'):
             self.account_title.setText(f"Value by account  •  {fmt_money(acc_total)}")
@@ -1776,12 +2107,12 @@ class FinanceLensApp(QMainWindow):
                     hold_val[sym] = hold_val.get(sym, 0) + val
                 hold_pl[sym] = hold_pl.get(sym, 0) + pl
         hold_val_total = sum(hold_val.values())
-        if hasattr(self, 'holdings_title'):
-            self.holdings_title.setText(f"Market value by symbol  •  {fmt_money(hold_val_total)}")
+        if hasattr(self, 'holdings_graph_title'):
+            self.holdings_graph_title.setText(f"Market value by symbol  •  {fmt_money(hold_val_total)}")
         hold_rows = sorted(hold_val.items(), key=lambda x: -x[1])
         if hasattr(self, 'holdings_graph'):
             self.holdings_graph.set_rows(hold_rows)
-        # (old pie removed; using graphs for cleaner look)
+        # using graphs for cleaner look
 
         # Top categories graph (fills page space)
         if hasattr(self, 'top_categories_graph'):
@@ -1791,15 +2122,43 @@ class FinanceLensApp(QMainWindow):
             self.top_categories_graph.set_rows(cleaned_cats)
 
         # Update sidebar
-        self.sidebar_snapshot.set_value(f"{tx_data['count']} txns")
-        self.sidebar_snapshot.set_subtitle(f"{len(tx_data['months'])} mo")
         self.sidebar_bridge.setText(self._bridge_status_text())
 
     def render_networth(self) -> None:
         if not self.net_worth_history:
             self.net_worth_history = self._compute_net_worth_history()
+        data = self.net_worth_history or []
         if hasattr(self, 'networth_chart') and self.networth_chart:
-            self.networth_chart.set_data(self.net_worth_history or [])
+            self.networth_chart.set_data(data)
+
+        if data:
+            current = data[-1][1]
+            if hasattr(self, 'nw_amount'):
+                self.nw_amount.setText(fmt_money(current))
+
+            if len(data) > 1:
+                first = data[0][1]
+                delta = current - first
+                pct = (delta / first * 100) if first != 0 else 0
+                color = RH_GREEN if delta >= 0 else NEGATIVE
+                if hasattr(self, 'nw_change'):
+                    self.nw_change.setText(f"{fmt_money(delta)} ({pct:+.1f}%)")
+                    self.nw_change.setStyleSheet(f"color: {color}; font-size: 18px; font-weight: 600;")
+            else:
+                if hasattr(self, 'nw_change'):
+                    self.nw_change.setText("")
+
+            if hasattr(self, 'nw_range'):
+                self.nw_range.setText("June 2026")
+            if hasattr(self, 'nw_updated'):
+                self.nw_updated.setText("Based on transaction history + current holdings")
+        else:
+            if hasattr(self, 'nw_amount'):
+                self.nw_amount.setText("$0.00")
+            if hasattr(self, 'nw_change'):
+                self.nw_change.setText("")
+            if hasattr(self, 'nw_range'):
+                self.nw_range.setText("June 2026")
 
     def render_positions(self) -> None:
         """Populate the positions table on the separate Positions tab.
@@ -1835,6 +2194,12 @@ class FinanceLensApp(QMainWindow):
                     hold_val[sym] = hold_val.get(sym, 0) + val
                 hold_pl[sym] = hold_pl.get(sym, 0) + pl
 
+        # Manual assets
+        for name, val in getattr(self, 'manual_assets', {}).items():
+            if val > 0:
+                hold_val[name] = val
+                hold_pl[name] = 0
+
         total_val = sum(hold_val.values())
         if hasattr(self, "positions_total") and self.positions_total:
             self.positions_total.setText(fmt_money(total_val))
@@ -1858,33 +2223,124 @@ class FinanceLensApp(QMainWindow):
             self.positions_table.setItem(r, 7, QTableWidgetItem(f"{(pl / val * 100 if val else 0):.1f}%"))
 
     def refresh_transactions(self) -> None:
-        txs = self.filtered if self.filtered is not None else self.transactions
-        self.tx_table.setRowCount(0)
-        for tx in txs[:1500]:
-            row = self.tx_table.rowCount()
-            self.tx_table.insertRow(row)
+        """Populate the monthly cash-flow Activity view (Wealthfront only)."""
+        if not hasattr(self, "flow_tree") or self.flow_tree is None:
+            return
+        # Auto-load/reload Wealthfront data if no WF txns yet (in case tab viewed before load/sync or after external link)
+        has_wf = any('wealthfront' in (getattr(tx, 'account', '') or '').lower() for tx in (self.transactions or []))
+        if not has_wf:
+            self.load_wealthfront_snapshot(silent=True)
+        self._populate_flow_table()
 
-            date_str = tx.date.strftime("%b %d")
-            amount_str = fmt_money(tx.amount)
+    def _reload_for_activity(self) -> None:
+        self.load_wealthfront_snapshot(silent=True)
+        self.load_snapshot(silent=True)
+        self._populate_flow_table()
 
-            values = [
-                date_str,
-                (tx.description or "")[:40],
-                amount_str,
-                (tx.account or "")[:18],
-            ]
-            for col, value in enumerate(values):
-                item = QTableWidgetItem(str(value))
-                if col == 2:
-                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                    item.setForeground(QColor(POSITIVE if tx.amount >= 0 else NEGATIVE))
-                self.tx_table.setItem(row, col, item)
-        self.tx_table.setColumnWidth(0, 70)
-        self.tx_table.setColumnWidth(2, 90)
+    def _populate_flow_table(self) -> None:
+        """Compute and display monthly inflows/outflows for Wealthfront,
+        with individual transactions listed under each month.
+        """
+        if not hasattr(self, "flow_tree") or self.flow_tree is None:
+            return
+
+        from collections import defaultdict
+        wf_month_agg = defaultdict(lambda: {"in": 0.0, "out": 0.0})
+        wf_tx_by_month = defaultdict(list)
+
+        for tx in (self.transactions or []):
+            acc = (getattr(tx, "account", "") or "").lower()
+            if not acc:
+                continue
+            # Only Wealthfront (Plaid uses "Wealthfront Cash/Card", CSV may use similar)
+            is_wf = "wealthfront" in acc
+            if not is_wf:
+                continue
+
+            mkey = month_key(tx.date)
+            amt = float(tx.amount or 0)
+            if amt > 0:
+                wf_month_agg[mkey]["in"] += amt
+            else:
+                wf_month_agg[mkey]["out"] += -amt
+            wf_tx_by_month[mkey].append(tx)
+
+        all_months = sorted(wf_month_agg.keys(), reverse=True)
+
+        # Lifetime aggregates for KPIs
+        wf_in = sum(v["in"] for v in wf_month_agg.values())
+        wf_out = sum(v["out"] for v in wf_month_agg.values())
+        wf_net = wf_in - wf_out
+
+        if hasattr(self, "wf_in_kpi"):
+            self._set_metric(self.wf_in_kpi, fmt_money(wf_in))
+        if hasattr(self, "wf_out_kpi"):
+            self._set_metric(self.wf_out_kpi, fmt_money(wf_out))
+        if hasattr(self, "wf_net_kpi"):
+            self._set_metric(self.wf_net_kpi, fmt_money(wf_net))
+
+        # Build tree: months as parents, txns as children
+        self.flow_tree.clear()
+        self.flow_tree.setColumnWidth(0, 170)  # more room for Month
+        self.flow_tree.setColumnWidth(1, 340)
+        self.flow_tree.setColumnWidth(2, 100)
+        self.flow_tree.setColumnWidth(3, 100)
+
+        for m in all_months:
+            wi = wf_month_agg[m]["in"]
+            wo = wf_month_agg[m]["out"]
+            wnet = wi - wo
+
+            # Parent row with summary
+            month_item = QTreeWidgetItem([
+                m,
+                f"Summary (Net: {fmt_money(wnet)})",
+                fmt_money(wi),
+                fmt_money(wo)
+            ])
+            # Style parent row as bold
+            for col in range(4):
+                font = month_item.font(col)
+                font.setBold(True)
+                month_item.setFont(col, font)
+            # Color the summary amounts
+            month_item.setForeground(2, QColor(POSITIVE))
+            month_item.setForeground(3, QColor(NEGATIVE))
+
+            # Add child transactions for this month (oldest first within month)
+            txs = sorted(wf_tx_by_month.get(m, []), key=lambda t: t.date)
+            for tx in txs:
+                date_str = tx.date.strftime("%b %d")
+                desc = (tx.description or "Transaction")[:60]
+                amt = float(tx.amount or 0)
+                inflow = fmt_money(amt) if amt > 0 else ""
+                outflow = fmt_money(-amt) if amt < 0 else ""
+                child = QTreeWidgetItem([date_str, desc, inflow, outflow])
+                if amt >= 0:
+                    child.setForeground(2, QColor(POSITIVE))
+                else:
+                    child.setForeground(3, QColor(NEGATIVE))
+                month_item.addChild(child)
+
+            self.flow_tree.addTopLevelItem(month_item)
+            month_item.setExpanded(True)  # show transactions by default
+
+        if not all_months:
+            # Empty state
+            item = QTreeWidgetItem([
+                "No Wealthfront transactions",
+                "Use 'Sync Wealthfront now' in Settings (or run the bridge sync) to populate cash flow.",
+                "",
+                ""
+            ])
+            item.setForeground(0, QColor(MUTED))
+            self.flow_tree.addTopLevelItem(item)
 
     def load_snapshot(self, silent: bool = False) -> None:
         path_str = getattr(self, 'cache_path', None)
         path = Path(path_str.text() if path_str else DEFAULT_ROBINHOOD_CACHE).expanduser()
+        if not path.exists() or not str(path).strip():
+            path = DEFAULT_ROBINHOOD_CACHE
         if not path.exists():
             self.snapshot = None
             if not silent:
@@ -1895,17 +2351,72 @@ class FinanceLensApp(QMainWindow):
             self.snapshot = load_json(path)
             self.settings["last_cache"] = str(path)
             save_settings(self.settings)
+            self._add_robinhood_orders_as_transactions()
             self.net_worth_history = self._compute_net_worth_history()
             self.render_holdings()
             self.render_positions()
+            self.refresh_transactions()
         except Exception as exc:
             self.snapshot = None
             if not silent:
                 QMessageBox.critical(self, APP_TITLE, f"Could not read cache file: {exc}")
 
+    def _add_robinhood_orders_as_transactions(self) -> None:
+        """Convert filled equity orders from robinhood-cache.json into app Transactions.
+        (These show as account=Robinhood; the Activity cash-flow tab focuses on WF/RH credit card Plaid txns.)
+        """
+        orders = self.snapshot.get("orders", []) if self.snapshot else []
+        if not orders:
+            return
+        new_txs = []
+        for o in orders:
+            if o.get("state") != "filled":
+                continue
+            symbol = o.get("symbol", "?")
+            side = o.get("side", "")
+            qty = float(o.get("cumulative_quantity") or o.get("quantity", 0) or 0)
+            avg_price = float(o.get("average_price") or 0)
+            fees = float(o.get("fees") or 0)
+            dollar_amount = o.get("dollar_based_amount")
+            if dollar_amount and isinstance(dollar_amount, dict):
+                amount = float(dollar_amount.get("amount", 0))
+            else:
+                amount = qty * avg_price
+            if side == "buy":
+                app_amount = - (amount + fees)
+            else:
+                app_amount = amount - fees
+            created = o.get("created_at", "") or o.get("last_transaction_at", "")
+            try:
+                dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+            except:
+                dt = datetime.now()
+            description = f"{side.upper()} {symbol} {qty:.4f} @ ${avg_price:.2f}"
+            if fees > 0:
+                description += f" (fee ${fees:.2f})"
+            tx = Transaction(
+                date=dt,
+                description=description,
+                amount=app_amount,
+                category="Robinhood Trade",
+                account="Robinhood",
+                balance=None
+            )
+            new_txs.append(tx)
+        if new_txs:
+            base = [tx for tx in (self.transactions or []) if getattr(tx, 'account', '') != "Robinhood"]
+            all_txs = base + new_txs
+            self.transactions = sorted(all_txs, key=lambda tx: tx.date)
+            self.filtered = list(self.transactions)
+
     def load_wealthfront_snapshot(self, silent: bool = False) -> None:
-        path_str = getattr(self, 'wealthfront_cache_path', None)
-        path = Path(path_str.text() if path_str else DEFAULT_WEALTHFRONT_CACHE).expanduser()
+        # Prefer the path from Settings UI if available (widgets may lag settings)
+        path_str = None
+        if hasattr(self, 'plaid_cache_path') and self.plaid_cache_path.text().strip():
+            path_str = self.plaid_cache_path.text()
+        elif hasattr(self, 'wealthfront_cache_path') and self.wealthfront_cache_path.text().strip():
+            path_str = self.wealthfront_cache_path.text()
+        path = Path(path_str or self.settings.get("wealthfront_cache", DEFAULT_WEALTHFRONT_CACHE)).expanduser()
         if not path.exists():
             self.wealthfront_snapshot = None
             if not silent:
@@ -1916,62 +2427,151 @@ class FinanceLensApp(QMainWindow):
             self.wealthfront_snapshot = load_json(path)
             self.settings["wealthfront_cache"] = str(path)
             save_settings(self.settings)
-            self._add_wealthfront_cash_transactions()
+            # Keep widgets in sync
+            if hasattr(self, 'wealthfront_cache_path'):
+                self.wealthfront_cache_path.setText(str(path))
+            if hasattr(self, 'plaid_cache_path'):
+                self.plaid_cache_path.setText(str(path))
+            self._add_plaid_cash_transactions()
             self.net_worth_history = self._compute_net_worth_history()
             self.render_holdings()
             self.render_positions()
+            self.refresh_transactions()  # ensure Activity cashflow updates
         except Exception as exc:
             self.wealthfront_snapshot = None
             if not silent:
                 QMessageBox.critical(self, APP_TITLE, f"Could not read Wealthfront cache file: {exc}")
 
-    def _add_wealthfront_cash_transactions(self) -> None:
-        """Add real Wealthfront bank (Cash Account) transactions from Plaid cache to activity tab."""
-        if not self.wealthfront_snapshot:
+    def load_robinhood_plaid_snapshot(self, silent: bool = False) -> None:
+        """Load Plaid cache for Robinhood credit card (or other Robinhood accounts).
+        (Note: Robinhood is no longer shown on the Activity cash flow page.)
+        """
+        path_str = self.settings.get("robinhood_plaid_cache", str(ROOT / "robinhood-plaid-cache.json"))
+        path = Path(path_str).expanduser()
+        if not path.exists():
+            # Fallback: user linked Robinhood via the wealthfront bridge and copied/renamed
+            fallback = ROOT / "wealthfront-cache.json"
+            if fallback.exists():
+                try:
+                    temp = load_json(fallback)
+                    # Detect if this cache looks like Robinhood (has robinhood accounts or institution)
+                    accs = temp.get("accounts", [])
+                    if any("robinhood" in str(a).lower() or "investing" in str(a.get("nickname","")).lower() for a in accs):
+                        self.robinhood_plaid_snapshot = temp
+                        self.robinhood_plaid_snapshot["account_label"] = "Robinhood"
+                        self._add_plaid_cash_transactions()
+                        self.net_worth_history = self._compute_net_worth_history()
+                        self.refresh_transactions()
+                        return
+                except:
+                    pass
+            self.robinhood_plaid_snapshot = None
             return
-        cash_tx = self.wealthfront_snapshot.get("cash_transactions", {})
-        added = cash_tx.get("added", []) or []
-        new_txs = []
-        for t in added:
-            date_str = t.get("date")
-            if not date_str:
-                continue
-            try:
-                dt = datetime.strptime(date_str, "%Y-%m-%d")
-            except Exception:
-                continue
-            name = t.get("name") or t.get("merchant_name") or "Transaction"
-            plaid_amount = float(t.get("amount", 0) or 0)
-            # Plaid: positive amount = outflow (expense for bank)
-            # App: positive = income, negative = expense
-            app_amount = -plaid_amount
-            cats = t.get("category") or []
-            category = " / ".join(cats) if cats else "Uncategorized"
-            account = "Wealthfront Cash"
-            tx = Transaction(
-                date=dt,
-                description=str(name)[:100],
-                amount=app_amount,
-                category=category,
-                account=account,
-                balance=None
-            )
-            new_txs.append(tx)
-        if new_txs:
-            # Merge with existing CSV transactions (avoid dupes from WF)
-            base = [tx for tx in (self.transactions or []) if not getattr(tx, 'account', '').startswith('Wealthfront')]
-            all_txs = base + new_txs
-            self.transactions = sorted(all_txs, key=lambda tx: tx.date)
-            self.filtered = list(self.transactions)
+        try:
+            self.robinhood_plaid_snapshot = load_json(path)
+            if "account_label" not in self.robinhood_plaid_snapshot:
+                self.robinhood_plaid_snapshot["account_label"] = "Robinhood"
+            self._add_plaid_cash_transactions()
             self.net_worth_history = self._compute_net_worth_history()
-            self._sync_months()
+            self.render_holdings()
+            self.render_positions()
+            self.refresh_transactions()
+        except Exception as exc:
+            self.robinhood_plaid_snapshot = None
+            if not silent:
+                QMessageBox.critical(self, APP_TITLE, f"Could not read Robinhood Plaid cache: {exc}")
+
+    def _add_plaid_cash_transactions(self) -> None:
+        """Add Plaid cash/credit transactions from Wealthfront or Robinhood (credit card).
+        Wealthfront ones power the Activity tab cash flow view.
+        """
+        # Support Wealthfront snapshot
+        snapshots = []
+        if self.wealthfront_snapshot:
+            snapshots.append(self.wealthfront_snapshot)
+        if self.robinhood_plaid_snapshot:
+            snapshots.append(self.robinhood_plaid_snapshot)
+        # Support Robinhood credit card via Plaid if a robinhood_plaid snapshot exists
+        # Also check main snapshot for future
+        if self.snapshot and self.snapshot.get("cash_transactions"):
+            snapshots.append(self.snapshot)
+
+        for snapshot in snapshots:
+            cash_tx = snapshot.get("cash_transactions", {})
+            added = cash_tx.get("added", []) or []
+            label = snapshot.get("account_label") or snapshot.get("institution", "Plaid Account")
+            account = f"{label} Cash/Card"
+            new_txs = []
+            for t in added:
+                date_str = t.get("date")
+                if not date_str:
+                    continue
+                try:
+                    dt = datetime.strptime(date_str, "%Y-%m-%d")
+                except Exception:
+                    continue
+                name = t.get("name") or t.get("merchant_name") or "Transaction"
+                plaid_amount = float(t.get("amount", 0) or 0)
+                # Plaid: positive amount = outflow (expense for bank/credit)
+                # App: positive = income, negative = expense
+                app_amount = -plaid_amount
+                cats = t.get("category") or []
+                category = " / ".join(cats) if cats else "Uncategorized"
+                tx = Transaction(
+                    date=dt,
+                    description=str(name)[:100],
+                    amount=app_amount,
+                    category=category,
+                    account=account,
+                    balance=None
+                )
+                new_txs.append(tx)
+            # For Wealthfront, also include investment_transactions as they affect cash (buy/sell) - even if no cash added
+            if "wealthfront" in label.lower() or snapshot.get("institution", "").lower() == "wealthfront":
+                inv_txs = snapshot.get("investment_transactions", []) or []
+                for t in inv_txs:
+                    date_str = t.get("date")
+                    if not date_str:
+                        continue
+                    try:
+                        dt = datetime.strptime(date_str, "%Y-%m-%d")
+                    except Exception:
+                        continue
+                    name = t.get("name") or t.get("security_id") or "Investment"
+                    amt = float(t.get("amount", 0) or 0)
+                    ttype = (t.get("type") or "").lower()
+                    if ttype in ("sell", "dividend", "cash"):
+                        app_amount = amt  # inflow
+                    else:
+                        app_amount = -amt  # buy or other = outflow
+                    tx = Transaction(
+                        date=dt,
+                        description=str(name)[:100],
+                        amount=app_amount,
+                        category="Investment",
+                        account=account,
+                        balance=None
+                    )
+                    new_txs.append(tx)
+
+            if new_txs:
+                # Merge avoiding dupes based on account prefix
+                prefix = account.split()[0] if " " in account else account
+                base = [tx for tx in (self.transactions or []) if not getattr(tx, 'account', '').startswith(prefix)]
+                all_txs = base + new_txs
+                self.transactions = sorted(all_txs, key=lambda tx: tx.date)
+                self.filtered = list(self.transactions)
+                self.net_worth_history = self._compute_net_worth_history()
 
     def render_holdings(self) -> None:
-        """Clean Robinhood/Wealthfront style holdings table - only useful info."""
+        """Premium holdings table. Fixed truncation, proper column sizing, % of portfolio,
+        clean no-alternating rows, dynamic breakdown, high quality formatting.
+        """
         if not hasattr(self, 'holdings_table') or self.holdings_table is None:
             return
         self.holdings_table.setRowCount(0)
-        total_val = compute_portfolio_value(self.snapshot, self.wealthfront_snapshot)
+
+        total_val = compute_portfolio_value(self.snapshot, self.wealthfront_snapshot, getattr(self, 'manual_assets', None))
         if hasattr(self, 'holdings_total'):
             self.holdings_total.setText(fmt_money(total_val))
 
@@ -1988,11 +2588,11 @@ class FinanceLensApp(QMainWindow):
                     value = qty * last
                     pnl = value - (qty * avg)
                     positions.append({
-                        "source": "RH", "symbol": pos.get("symbol", "?"),
+                        "source": "Robinhood", "symbol": pos.get("symbol", "?"),
                         "qty": qty, "price": last, "value": value, "pnl": pnl
                     })
 
-        # Robinhood cash positions (uninvested cash per account, from portfolio data)
+        # Robinhood cash
         if self.snapshot:
             for acc in self.snapshot.get("accounts", []):
                 cash_val = 0.0
@@ -2006,7 +2606,7 @@ class FinanceLensApp(QMainWindow):
                             pass
                 if cash_val > 0:
                     positions.append({
-                        "source": "RH Cash",
+                        "source": "Cash",
                         "symbol": acc.get("nickname", "Cash"),
                         "qty": "-",
                         "price": 0,
@@ -2026,57 +2626,168 @@ class FinanceLensApp(QMainWindow):
                 pnl = value - cost
                 price = value / qty if qty else 0
                 positions.append({
-                    "source": "WF", "symbol": sym[:10],
+                    "source": "Wealthfront", "symbol": sym,
                     "qty": qty, "price": price, "value": value, "pnl": pnl
+                })
+
+            # Wealthfront cash / account balances (for cash accounts or available funds)
+            for acc in self.wealthfront_snapshot.get("accounts", []):
+                bal = 0.0
+                balances = acc.get("balances") or acc
+                for k in ("current", "available", "cash", "balance"):
+                    v = balances.get(k) if isinstance(balances, dict) else acc.get(k)
+                    if v is not None:
+                        try:
+                            bval = float(v)
+                            if bval > 0:
+                                bal = bval
+                                break
+                        except (ValueError, TypeError):
+                            pass
+                if bal > 0:
+                    positions.append({
+                        "source": "Wealthfront",
+                        "symbol": acc.get("name") or acc.get("official_name") or acc.get("nickname", "Cash"),
+                        "qty": "-",
+                        "price": 0,
+                        "value": bal,
+                        "pnl": 0
+                    })
+
+        # Manual assets
+        for name, value in getattr(self, 'manual_assets', {}).items():
+            if value > 0:
+                positions.append({
+                    "source": "Manual",
+                    "symbol": name,
+                    "qty": "-",
+                    "price": 0,
+                    "value": float(value),
+                    "pnl": 0
                 })
 
         positions.sort(key=lambda p: -p["value"])
 
-        for p in positions[:20]:
+        # Compute breakdown for header
+        rh_total = sum(p["value"] for p in positions if p["source"] == "Robinhood")
+        wf_total = sum(p["value"] for p in positions if p["source"] == "Wealthfront")
+        cash_total = sum(p["value"] for p in positions if p["source"] == "Cash")
+        manual_total = sum(p["value"] for p in positions if p["source"] == "Manual")
+        rh_cnt = sum(1 for p in positions if p["source"] == "Robinhood")
+        wf_cnt = sum(1 for p in positions if p["source"] == "Wealthfront")
+        cash_cnt = sum(1 for p in positions if p["source"] == "Cash")
+        man_cnt = sum(1 for p in positions if p["source"] == "Manual")
+
+        # Clear old breakdown widgets and rebuild nice modern pills
+        if hasattr(self, "holdings_breakdown"):
+            while self.holdings_breakdown.count():
+                item = self.holdings_breakdown.takeAt(0)
+                w = item.widget()
+                if w:
+                    w.deleteLater()
+            for label, cnt, val in [
+                ("Robinhood", rh_cnt, rh_total),
+                ("Wealthfront", wf_cnt, wf_total),
+                ("Cash", cash_cnt, cash_total),
+                ("Manual", man_cnt, manual_total),
+            ]:
+                pill = QLabel(f"{label} ({cnt})   {fmt_money(val)}")
+                pill.setStyleSheet(f"color: {TEXT}; background: {GREEN_CARD}; border-radius: 999px; padding: 5px 14px; font-size: 13px;")
+                self.holdings_breakdown.addWidget(pill)
+            self.holdings_breakdown.addStretch(1)
+
+        # Update sub label
+        if hasattr(self, 'holdings_sub'):
+            count = len(positions)
+            self.holdings_sub.setText(f"{count} holdings  •  sorted by value  •  consolidated from caches")
+
+        # Populate table (limit for visual cleanliness; user can see all important ones)
+        display = positions[:25]
+        for p in display:
             row = self.holdings_table.rowCount()
             self.holdings_table.insertRow(row)
-            if p.get("source") == "RH Cash":
+
+            val = p["value"]
+            pct = (val / total_val * 100.0) if total_val > 0 else 0.0
+
+            src = p["source"]
+            is_special = src in ("Cash", "Manual") or str(p.get("qty", "")) == "-"
+
+            if is_special:
                 vals = [
-                    p["source"],
-                    p["symbol"],
+                    src,
+                    p["symbol"][:18] if len(p["symbol"]) > 18 else p["symbol"],
                     "-",
                     "-",
-                    fmt_money(p["value"]),
-                    "-"
+                    fmt_money(val),
+                    "-",
+                    f"{pct:.1f}%"
                 ]
             else:
+                qty_str = f"{p['qty']:.4f}".rstrip("0").rstrip(".") if p['qty'] < 1000 else f"{p['qty']:.2f}"
                 vals = [
-                    p["source"],
-                    p["symbol"],
-                    f"{p['qty']:.2f}",
+                    src,
+                    p["symbol"][:12] if len(p.get("symbol", "")) > 12 else p["symbol"],
+                    qty_str,
                     fmt_money(p["price"]),
-                    fmt_money(p["value"]),
-                    fmt_money(p["pnl"])
+                    fmt_money(val),
+                    fmt_money(p["pnl"]),
+                    f"{pct:.1f}%"
                 ]
+
             for c, v in enumerate(vals):
                 it = QTableWidgetItem(str(v))
-                if c > 2:
+                # Center Market Value (col 4), right-align other numerics
+                if c == 4:
+                    it.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+                elif c >= 2:
                     it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                if c == 5 and p.get("source") != "RH Cash":
+                else:
+                    it.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+                # Source coloring
+                if c == 0:
+                    if src == "Robinhood":
+                        it.setForeground(QColor(RH_GREEN))
+                    elif src == "Wealthfront":
+                        it.setForeground(QColor(GOLD))
+                    elif src == "Cash":
+                        it.setForeground(QColor(BLUE))
+
+                # P/L coloring
+                if c == 5 and not is_special:
                     it.setForeground(QColor(POSITIVE if p["pnl"] >= 0 else NEGATIVE))
+
                 self.holdings_table.setItem(row, c, it)
 
-        self.holdings_table.setColumnWidth(0, 50)
-        self.holdings_table.setColumnWidth(1, 100)
-        self.holdings_table.setColumnWidth(2, 60)
-        self.holdings_table.setColumnWidth(3, 80)
-        self.holdings_table.setColumnWidth(4, 85)
+        # Smart sizing to eliminate sloppy truncation
+        self.holdings_table.resizeColumnsToContents()
+        # Tweak a few for balance (Market Value centered, not stretched too far)
+        self.holdings_table.setColumnWidth(0, max(85, self.holdings_table.columnWidth(0)))   # Source
+        self.holdings_table.setColumnWidth(1, max(95, self.holdings_table.columnWidth(1)))   # Symbol
+        self.holdings_table.setColumnWidth(2, max(72, self.holdings_table.columnWidth(2)))   # Shares
+        self.holdings_table.setColumnWidth(3, max(88, self.holdings_table.columnWidth(3)))   # Price
+        self.holdings_table.setColumnWidth(4, max(110, self.holdings_table.columnWidth(4)))  # Market Value (centered)
+        self.holdings_table.setColumnWidth(5, max(115, self.holdings_table.columnWidth(5)))  # P/L
+        self.holdings_table.setColumnWidth(6, 78)                                            # %
 
         if not positions and hasattr(self, 'holdings_sub'):
-            self.holdings_sub.setText("Load a Robinhood cache.json or connect Wealthfront to populate")
+            self.holdings_sub.setText("No holdings loaded • use Settings or Reload to connect Robinhood / Wealthfront")
 
     def reload_all_holdings(self):
         self.load_snapshot(silent=True)
         self.load_wealthfront_snapshot(silent=True)
+        self.load_robinhood_plaid_snapshot(silent=True)
+        self.render_dashboard()
+        self.render_holdings()
+        self.refresh_transactions()
+
+    def reload_robinhood_holdings(self):
+        self.load_snapshot(silent=True)
         self.render_dashboard()
         self.render_holdings()
 
-    # Old card helpers removed - new UI uses clean tables only (Robinhood/Wealthfront inspired minimalism)
+    # Card helpers removed - using consistent #Card style
 
     def _bridge_status_text(self) -> str:
         parts = []
